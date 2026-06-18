@@ -8,6 +8,7 @@ from typing import Any
 
 import numpy as np
 from PIL import Image
+Image.MAX_IMAGE_PIXELS = None
 
 
 def detect_red_regions(
@@ -21,8 +22,7 @@ def detect_red_regions(
     """
     pil_image = _load_rgb_image(image)
     rgb = np.asarray(pil_image)
-    hsv = _rgb_to_hsv(rgb)
-    red_mask = _red_hsv_mask(hsv)
+    red_mask = _red_hsv_mask_optimized(rgb)
     cleaned_mask = _dilate(red_mask, iterations=1)
     regions = _regions_from_mask(cleaned_mask, min_area_px=min_area_px, bbox_mask=red_mask)
     debug_mask = Image.fromarray((cleaned_mask.astype(np.uint8) * 255), mode="L")
@@ -44,43 +44,33 @@ def _load_rgb_image(image: str | Path | Image.Image) -> Image.Image:
         return opened_image.convert("RGB")
 
 
-def _rgb_to_hsv(rgb: np.ndarray) -> np.ndarray:
-    rgb_float = rgb.astype(np.float32) / 255.0
-    red = rgb_float[..., 0]
-    green = rgb_float[..., 1]
-    blue = rgb_float[..., 2]
+def _red_hsv_mask_optimized(rgb: np.ndarray) -> np.ndarray:
+    """Memory-optimized red HSV mask calculation without generating full HSV image.
 
-    max_channel = np.max(rgb_float, axis=-1)
-    min_channel = np.min(rgb_float, axis=-1)
-    delta = max_channel - min_channel
+    Equivalent to original HSV red masks but runs in-place with minimal memory allocation.
+    """
+    R = rgb[..., 0].astype(np.float32)
+    diff_GB = np.abs(rgb[..., 1].astype(np.float32) - rgb[..., 2].astype(np.float32))
+    min_GB = np.minimum(rgb[..., 1], rgb[..., 2]).astype(np.float32)
 
-    hue = np.zeros_like(max_channel)
-    nonzero_delta = delta != 0
+    delta = R - min_GB
+    del min_GB
 
-    red_is_max = (max_channel == red) & nonzero_delta
-    green_is_max = (max_channel == green) & nonzero_delta
-    blue_is_max = (max_channel == blue) & nonzero_delta
+    # Red is the maximum channel
+    red_is_max = (rgb[..., 0] >= rgb[..., 1]) & (rgb[..., 0] >= rgb[..., 2])
 
-    hue[red_is_max] = ((green[red_is_max] - blue[red_is_max]) / delta[red_is_max]) % 6
-    hue[green_is_max] = ((blue[green_is_max] - red[green_is_max]) / delta[green_is_max]) + 2
-    hue[blue_is_max] = ((red[blue_is_max] - green[blue_is_max]) / delta[blue_is_max]) + 4
-    hue = hue * 60
+    # Value >= 0.25 (R >= 63.75)
+    value_ok = R >= 63.75
 
-    saturation = np.zeros_like(max_channel)
-    nonzero_value = max_channel != 0
-    saturation[nonzero_value] = delta[nonzero_value] / max_channel[nonzero_value]
+    # Saturation >= 0.35 (delta >= 0.35 * R)
+    sat_ok = delta >= 0.35 * R
 
-    return np.stack([hue, saturation, max_channel], axis=-1)
+    # Hue check: diff_GB <= 0.25 * delta
+    hue_ok = diff_GB <= 0.25 * delta
 
+    mask = red_is_max & value_ok & sat_ok & hue_ok
+    return mask
 
-def _red_hsv_mask(hsv: np.ndarray) -> np.ndarray:
-    hue = hsv[..., 0]
-    saturation = hsv[..., 1]
-    value = hsv[..., 2]
-
-    lower_red = hue <= 15
-    upper_red = hue >= 345
-    return (lower_red | upper_red) & (saturation >= 0.35) & (value >= 0.25)
 
 
 def _dilate(mask: np.ndarray, iterations: int) -> np.ndarray:

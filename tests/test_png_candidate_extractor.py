@@ -56,6 +56,7 @@ class TestPngCandidateExtractor(unittest.TestCase):
         self.assertEqual(c1["source"], "png_red_annotation_ocr")
         self.assertEqual(c1["label_type"], "WDB")
         self.assertEqual(c1["raw_text"], "WDB 70/20 OK -60 UKRD")
+        self.assertEqual(c1["normalized_text"], "WDB 70/20 OK -60 UKRD")
         self.assertEqual(c1["bbox_image"], [10, 20, 30, 40])
         self.assertEqual(c1["width_mm"], 700)
         self.assertEqual(c1["height_mm"], 200)
@@ -63,7 +64,7 @@ class TestPngCandidateExtractor(unittest.TestCase):
         self.assertIsNone(c1["ra_value"])
         self.assertEqual(c1["ok_value"], -60)
         self.assertEqual(c1["reference"], "UKRD")
-        self.assertEqual(c1["confidence"], 0.85)
+        self.assertEqual(c1["confidence"], 0.90)  # label_type + dim + vertical + ref
         self.assertEqual(c1["status"], "needs_review")
 
         # RED-002 (unparseable)
@@ -72,6 +73,7 @@ class TestPngCandidateExtractor(unittest.TestCase):
         self.assertEqual(c2["source"], "png_red_annotation_ocr")
         self.assertIsNone(c2["label_type"])
         self.assertEqual(c2["raw_text"], "Random Noise Text")
+        self.assertEqual(c2["normalized_text"], "RANDOM NOISE TEXT")
         self.assertEqual(c2["bbox_image"], [100, 200, 50, 60])
         self.assertIsNone(c2["width_mm"])
         self.assertIsNone(c2["height_mm"])
@@ -79,7 +81,7 @@ class TestPngCandidateExtractor(unittest.TestCase):
         self.assertIsNone(c2["ra_value"])
         self.assertIsNone(c2["ok_value"])
         self.assertIsNone(c2["reference"])
-        self.assertEqual(c2["confidence"], 0.5)
+        self.assertEqual(c2["confidence"], 0.30)  # label_type None, raw_text present
         self.assertEqual(c2["status"], "needs_review")
 
     def test_extract_candidates_missing_ocr_results(self):
@@ -92,7 +94,8 @@ class TestPngCandidateExtractor(unittest.TestCase):
             self.assertEqual(c["source"], "png_red_annotation_region")
             self.assertIsNone(c["label_type"])
             self.assertEqual(c["raw_text"], "")
-            self.assertEqual(c["confidence"], 0.3)
+            self.assertIsNone(c["normalized_text"])
+            self.assertEqual(c["confidence"], 0.20)  # label_type None, raw_text empty
             self.assertEqual(c["status"], "needs_review")
 
     def test_extract_candidates_empty_ocr_text(self):
@@ -108,7 +111,8 @@ class TestPngCandidateExtractor(unittest.TestCase):
         self.assertEqual(len(candidates), 1)
         c = candidates[0]
         self.assertEqual(c["raw_text"], "")
-        self.assertEqual(c["confidence"], 0.3)
+        self.assertIsNone(c["normalized_text"])
+        self.assertEqual(c["confidence"], 0.20)  # label_type None, raw_text empty
         self.assertEqual(c["source"], "png_red_annotation_ocr")
 
     def test_validate_candidate_valid(self):
@@ -117,6 +121,7 @@ class TestPngCandidateExtractor(unittest.TestCase):
             "source": "png_red_annotation_ocr",
             "label_type": "WDB",
             "raw_text": "WDB 70/20 OK -60 UKRD",
+            "normalized_text": "WDB 70/20 OK -60 UKRD",
             "bbox_image": [10, 20, 30, 40],
             "crop_path": "outputs/crops/SP_U1_0003_RED-001.png",
             "width_mm": 700,
@@ -125,7 +130,7 @@ class TestPngCandidateExtractor(unittest.TestCase):
             "ra_value": None,
             "ok_value": -60,
             "reference": "UKRD",
-            "confidence": 0.85,
+            "confidence": 0.90,
             "status": "needs_review"
         }
         # Should not raise any exception
@@ -224,25 +229,30 @@ class TestPngCandidateExtractor(unittest.TestCase):
             mock_img_path = Path(tmp_dir) / "mock_plan.png"
             Image.new("RGB", (100, 100), "white").save(mock_img_path)
             
+            out_path = Path(tmp_dir) / "out"
             candidates = run_png_extraction_pipeline(
                 image_path=mock_img_path,
                 plan_id="mock_plan",
-                output_root=Path(tmp_dir) / "out"
+                output_root=out_path,
+                clean_red=True
             )
+            
+            # Verify clean_red and output_root were passed to run_ocr_on_crops
+            mock_ocr.assert_called_once_with(crop_metadata, psm=6, clean_red=True, output_root=out_path)
             
             self.assertEqual(len(candidates), 1)
             c = candidates[0]
             self.assertEqual(c["candidate_id"], "OP-001")
             self.assertEqual(c["source"], "png_red_annotation_region")
-            self.assertEqual(c["confidence"], 0.3)
+            self.assertEqual(c["confidence"], 0.20)
 
             # Check directories
-            self.assertTrue((Path(tmp_dir) / "out" / "crops").exists())
-            self.assertTrue((Path(tmp_dir) / "out" / "debug").exists())
-            self.assertTrue((Path(tmp_dir) / "out" / "candidates").exists())
+            self.assertTrue((out_path / "crops").exists())
+            self.assertTrue((out_path / "debug").exists())
+            self.assertTrue((out_path / "candidates").exists())
 
             # Verify saved JSON has the server-compatible dict format
-            candidates_path = Path(tmp_dir) / "out" / "candidates" / "mock_plan_candidates.json"
+            candidates_path = out_path / "candidates" / "mock_plan_candidates.json"
             self.assertTrue(candidates_path.exists())
             with open(candidates_path, encoding="utf-8") as f:
                 payload = json.load(f)

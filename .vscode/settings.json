@@ -1,0 +1,24 @@
+{
+  "files.watcherExclude": {
+    "**/.git/**": true,
+    "**/.venv/**": true,
+    "**/venv/**": true,
+    "**/node_modules/**": true,
+    "**/outputs/**": true,
+    "**/data/pages/**": true,
+    "**/data/raw/**": true,
+    "**/data/ocr_benchmark/**": true,
+    "**/__pycache__/**": true
+  },
+  "search.exclude": {
+    "**/.git": true,
+    "**/.venv": true,
+    "**/venv": true,
+    "**/node_modules": true,
+    "**/outputs": true,
+    "**/data/pages": true,
+    "**/data/raw": true,
+    "**/data/ocr_benchmark": true,
+    "**/__pycache__": true
+  }
+}

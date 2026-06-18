@@ -21,6 +21,9 @@
 !annotations/
 !annotations/.gitkeep
 !annotations/*.json
+!ocr_benchmark/
+!ocr_benchmark/**
 !words/
 !words/*.json
 !*.py
+

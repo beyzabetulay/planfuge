@@ -2,6 +2,7 @@ import logging
 import shutil
 from pathlib import Path
 from PIL import Image
+Image.MAX_IMAGE_PIXELS = None
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -23,7 +24,13 @@ def check_tesseract_availability() -> bool:
 
 import concurrent.futures
 
-def _process_single_crop(item: dict, psm: int, tesseract_available: bool) -> dict:
+def _process_single_crop(
+    item: dict, 
+    psm: int, 
+    tesseract_available: bool, 
+    clean_red: bool = False, 
+    output_root: Path | None = None
+) -> dict:
     region_id = item.get("region_id")
     crop_path = item.get("crop_path")
     
@@ -54,9 +61,52 @@ def _process_single_crop(item: dict, psm: int, tesseract_available: bool) -> dic
         return result
         
     try:
-        # Load image and convert to grayscale (L mode)
+        # Load image and convert to RGB first to run HSV-based cleanup
         with Image.open(crop_path) as img:
-            img_gray = img.convert("L")
+            img_rgb = img.convert("RGB")
+            
+            cleaned_img_rgb = img_rgb
+            mask_pil = None
+            
+            if clean_red:
+                try:
+                    from src.image.red_cleanup import remove_red_pixels
+                    cleaned_img_rgb, mask_pil = remove_red_pixels(img_rgb, dilation_iterations=1)
+                except Exception as cleanup_err:
+                    logger.warning(f"Red cleanup failed for {region_id}, falling back to original image: {cleanup_err}")
+                    cleaned_img_rgb = img_rgb
+            
+            # Save original, mask, and cleaned images if clean_red is enabled and output_root is provided
+            if clean_red and output_root is not None:
+                try:
+                    output_path = Path(output_root)
+                    cleanup_debug_dir = output_path / "debug" / "ocr_cleanup"
+                    cleanup_debug_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    crop_path_obj = Path(crop_path)
+                    filename_stem = crop_path_obj.stem
+                    if region_id and filename_stem.endswith(f"_{region_id}"):
+                        plan_id = filename_stem[:-len(f"_{region_id}")]
+                    else:
+                        plan_id = filename_stem
+                        
+                    # Save original crop
+                    original_debug_path = cleanup_debug_dir / f"{plan_id}_{region_id}_original.png"
+                    img_rgb.save(original_debug_path)
+                    
+                    # Save mask if available
+                    if mask_pil is not None:
+                        mask_debug_path = cleanup_debug_dir / f"{plan_id}_{region_id}_mask.png"
+                        mask_pil.save(mask_debug_path)
+                        
+                    # Save cleaned crop
+                    cleaned_debug_path = cleanup_debug_dir / f"{plan_id}_{region_id}_cleaned.png"
+                    cleaned_img_rgb.save(cleaned_debug_path)
+                except Exception as save_err:
+                    logger.error(f"Failed to save debug images for {region_id}: {save_err}")
+            
+            # Convert final cleaned image to grayscale (L mode) for OCR
+            img_gray = cleaned_img_rgb.convert("L")
             
             # Attempt OCR with fallback sequence
             ocr_text = ""
@@ -105,6 +155,22 @@ def _process_single_crop(item: dict, psm: int, tesseract_available: bool) -> dic
             # Format OCR text: strip leading/trailing whitespace
             ocr_text_clean = ocr_text.strip() if ocr_text else ""
             
+            # Save OCR result txt if clean_red is True and output_root is provided
+            if clean_red and output_root is not None:
+                try:
+                    crop_path_obj = Path(crop_path)
+                    filename_stem = crop_path_obj.stem
+                    if region_id and filename_stem.endswith(f"_{region_id}"):
+                        plan_id = filename_stem[:-len(f"_{region_id}")]
+                    else:
+                        plan_id = filename_stem
+                        
+                    result_txt_path = Path(output_root) / "debug" / "ocr_cleanup" / f"{plan_id}_{region_id}_result.txt"
+                    with open(result_txt_path, "w", encoding="utf-8") as f:
+                        f.write(ocr_text_clean)
+                except Exception as save_txt_err:
+                    logger.error(f"Failed to save OCR result text for {region_id}: {save_txt_err}")
+            
             # Populate result
             result["ocr_text"] = ocr_text_clean
             result["ocr_available"] = (used_lang is not None or "OCR completely failed" not in (warning or ""))
@@ -118,7 +184,12 @@ def _process_single_crop(item: dict, psm: int, tesseract_available: bool) -> dic
     return result
 
 
-def run_ocr_on_crops(crops_metadata: list, psm: int = 6) -> list:
+def run_ocr_on_crops(
+    crops_metadata: list, 
+    psm: int = 6, 
+    clean_red: bool = False, 
+    output_root: Path | None = None
+) -> list:
     """
     Run OCR on a list of crop image metadata dictionaries.
     
@@ -132,7 +203,7 @@ def run_ocr_on_crops(crops_metadata: list, psm: int = 6) -> list:
     results = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         futures = [
-            executor.submit(_process_single_crop, item, psm, tesseract_available)
+            executor.submit(_process_single_crop, item, psm, tesseract_available, clean_red, output_root)
             for item in crops_metadata
         ]
         for future in concurrent.futures.as_completed(futures):

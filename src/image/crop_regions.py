@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from PIL import Image
+Image.MAX_IMAGE_PIXELS = None
 
 
 def crop_red_regions(

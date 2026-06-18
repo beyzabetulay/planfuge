@@ -2,7 +2,7 @@ import logging
 import json
 from pathlib import Path
 from typing import Any
-from src.candidates.opening_label_parser import parse_opening_label
+from src.candidates.opening_label_parser import parse_opening_label, normalize_ocr_text
 from src.image.red_annotation_detector import detect_red_regions, save_red_debug_mask
 from src.image.crop_regions import crop_red_regions
 from src.image.ocr_crops import run_ocr_on_crops
@@ -29,6 +29,10 @@ def validate_candidate(candidate: dict[str, Any]) -> None:
         
     if not isinstance(candidate.get("raw_text"), str):
         raise TypeError(f"raw_text must be a string, got {type(candidate.get('raw_text'))}")
+        
+    norm_text = candidate.get("normalized_text")
+    if norm_text is not None and not isinstance(norm_text, str):
+        raise TypeError(f"normalized_text must be a string or None, got {type(norm_text)}")
         
     bbox = candidate.get("bbox_image")
     if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
@@ -120,8 +124,10 @@ def extract_candidates_from_png_data(
         reference = None
         
         # Try to parse if we have OCR text
+        normalized_text = None
         if raw_text:
-            parsed = parse_opening_label(raw_text)
+            normalized_text = normalize_ocr_text(raw_text)
+            parsed = parse_opening_label(normalized_text)
             if parsed:
                 label_type = parsed.get("label_type")
                 width_mm = parsed.get("width_mm")
@@ -130,13 +136,33 @@ def extract_candidates_from_png_data(
                 ra_value = parsed.get("ra_value")
                 ok_value = parsed.get("ok_value")
                 reference = parsed.get("reference")
+                
+        # Compute confidence score dynamically
+        if not label_type:
+            if not raw_text.strip():
+                confidence = 0.20
+            else:
+                confidence = 0.30
+        else:
+            has_dim = (width_mm is not None) or (height_mm is not None) or (diameter_mm is not None)
+            has_vertical = (ra_value is not None) or (ok_value is not None)
+            has_ref = reference is not None
+            
+            if has_dim and has_vertical and has_ref:
+                confidence = 0.90
+            elif has_vertical and has_ref:
                 confidence = 0.85
+            elif has_dim:
+                confidence = 0.75
+            else:
+                confidence = 0.60
                 
         candidate = {
             "candidate_id": f"OP-{idx+1:03d}",
             "source": source,
             "label_type": label_type,
             "raw_text": raw_text,
+            "normalized_text": normalized_text,
             "bbox_image": bbox_image,
             "crop_path": crop_path,
             "width_mm": width_mm,
@@ -162,7 +188,8 @@ def run_png_extraction_pipeline(
     padding_px: int = 80,
     min_area_px: int = 250,
     psm: int = 6,
-    default_status: str = "needs_review"
+    default_status: str = "needs_review",
+    clean_red: bool = False
 ) -> list[dict[str, Any]]:
     """
     Orchestrate the end-to-end PNG extraction pipeline.
@@ -219,7 +246,7 @@ def run_png_extraction_pipeline(
         json.dump(crop_metadata, f, indent=2)
         
     # 4. OCR on crops
-    ocr_results = run_ocr_on_crops(crop_metadata, psm=psm)
+    ocr_results = run_ocr_on_crops(crop_metadata, psm=psm, clean_red=clean_red, output_root=output_root)
     with open(ocr_results_path, "w", encoding="utf-8") as f:
         json.dump(ocr_results, f, indent=2)
         

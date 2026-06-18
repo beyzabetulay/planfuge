@@ -1,0 +1,17 @@
+{
+  "SP_U1_0003_RED-001.png": {
+    "expected_tokens": ["DDP", "HSI150", "RA-65", "UKRD"],
+    "must_not_contain": ["HSI190", "RAS"],
+    "comment": "Difficult crop with small text and red markup nearby."
+  },
+  "SP_U1_0003_RED-016.png": {
+    "expected_tokens": ["WDB", "UKRD"],
+    "must_not_contain": [],
+    "comment": "Small local plan label, OCR may be partially readable."
+  },
+  "SP_U1_0003_RED-035.png": {
+    "expected_tokens": ["DDB"],
+    "must_not_contain": [],
+    "comment": "Noisy crop with dense background lines."
+  }
+}

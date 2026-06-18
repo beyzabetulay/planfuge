@@ -55,6 +55,12 @@ def main() -> None:
         default="needs_review",
         help="Default status for extracted candidates. Defaults to 'needs_review'.",
     )
+    parser.add_argument(
+        "--clean-red",
+        action="store_true",
+        default=False,
+        help="Enable HSV-based red markup/cloud pixel cleanup before running OCR.",
+    )
     args = parser.parse_args()
 
     image_path = Path(args.image).resolve()
@@ -71,6 +77,7 @@ def main() -> None:
     print(f"Starting end-to-end candidate extraction for plan: {plan_id}")
     print(f"Input image: {image_path}")
     print(f"Output root: {output_root}")
+    print(f"Clean red annotation markup: {args.clean_red}")
 
     # Step-by-step execution reporting
     print("\nStep 1: Detecting red annotation regions...")
@@ -95,7 +102,8 @@ def main() -> None:
             padding_px=args.padding,
             min_area_px=args.min_area,
             psm=args.psm,
-            default_status=args.status
+            default_status=args.status,
+            clean_red=args.clean_red
         )
     except Exception as e:
         print(f"\nPipeline Error: {e}", file=sys.stderr)
