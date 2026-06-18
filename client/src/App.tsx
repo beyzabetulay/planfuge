@@ -35,6 +35,7 @@ function App() {
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null)
   const [cropError, setCropError] = useState(false)
+  const [isExporting, setIsExporting] = useState<{csv: boolean, json: boolean}>({csv: false, json: false})
 
   // Fetch available plans on mount
   useEffect(() => {
@@ -142,6 +143,39 @@ function App() {
     }
   }
 
+  const handleExport = async (type: 'csv' | 'json') => {
+    if (!activePlan || candidates.length === 0) return
+    setIsExporting(prev => ({ ...prev, [type]: true }))
+    try {
+      const response = await fetch(`/api/exports/${type}/${activePlan}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(candidates),
+      })
+      if (!response.ok) throw new Error("Export failed")
+      
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${activePlan}_verified_openings.${type}`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+      
+      // Refresh status to update UI flags
+      fetch(`/api/status/${activePlan}`)
+        .then(res => res.ok ? res.json() : null)
+        .then(data => { if (data) setPipelineStatus(data) })
+          
+    } catch (error) {
+      console.error(`Export ${type} error:`, error)
+    } finally {
+      setIsExporting(prev => ({ ...prev, [type]: false }))
+    }
+  }
+
   const handleCellChange = (id: string, field: keyof Candidate, value: any) => {
     setCandidates(prev => 
       prev.map(c => c.candidate_id === id ? { ...c, [field]: value } : c)
@@ -174,13 +208,18 @@ function App() {
   return (
     <div className="flex h-screen bg-background text-foreground overflow-hidden">
       {/* Sidebar */}
-      <aside className="w-64 bg-muted border-r border-border flex flex-col transition-all duration-300">
-        <div className="h-16 flex items-center px-6 border-b border-border">
-          <h1 className="text-xl font-bold tracking-tight text-primary">PlanFuge</h1>
+      <aside className="w-64 bg-[#FE0000] border-r border-[#cc0000] flex flex-col transition-all duration-300 shadow-xl z-20">
+        <div className="h-16 flex items-center px-6 border-b border-white/20">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-white rounded-md flex items-center justify-center shadow-sm">
+              <LayoutDashboard className="w-5 h-5 text-[#FE0000]" />
+            </div>
+            <h1 className="text-xl font-black tracking-tighter text-white">PLAN<span className="opacity-80 font-medium">FUGE</span></h1>
+          </div>
         </div>
         
         <div className="p-4 flex-1 overflow-y-auto">
-          <h2 className="text-xs uppercase font-semibold text-muted-foreground tracking-wider mb-4">Plan Selection</h2>
+          <h2 className="text-xs uppercase font-bold text-white/70 tracking-wider mb-4">Plan Selection</h2>
           
           {loadingPlans ? (
             <div className="animate-pulse space-y-2">
@@ -188,9 +227,9 @@ function App() {
               <div className="h-10 bg-border rounded-md w-full"></div>
             </div>
           ) : plans.length === 0 ? (
-            <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-md flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-yellow-600 shrink-0 mt-0.5" />
-              <p className="text-sm text-yellow-700 dark:text-yellow-500">
+            <div className="p-3 bg-white/10 border border-white/20 rounded-md flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-white shrink-0 mt-0.5" />
+              <p className="text-sm text-white/90">
                 No plan files found. Please add PNG files to <strong>data/pages/</strong>.
               </p>
             </div>
@@ -200,13 +239,13 @@ function App() {
                 <button
                   key={plan_id}
                   onClick={() => setActivePlan(plan_id)}
-                  className={`w-full flex items-center space-x-3 px-3 py-2 rounded-md font-medium transition-all duration-200 ${
+                  className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-md font-medium transition-all duration-200 ${
                     activePlan === plan_id 
-                      ? "bg-primary text-primary-foreground shadow-sm translate-x-1" 
-                      : "text-muted-foreground hover:bg-primary/5 hover:text-foreground"
+                      ? "bg-white text-[#FE0000] shadow-sm translate-x-1" 
+                      : "text-white/80 hover:bg-white/10 hover:text-white"
                   }`}
                 >
-                  <LayoutDashboard className={`w-4 h-4 ${activePlan === plan_id ? "text-primary-foreground/80" : ""}`} />
+                  <LayoutDashboard className={`w-4 h-4 ${activePlan === plan_id ? "text-[#FE0000]" : "text-white/60"}`} />
                   <span className="truncate">{plan_id}</span>
                 </button>
               ))}
@@ -214,8 +253,8 @@ function App() {
           )}
         </div>
         
-        <div className="p-4 border-t border-border">
-          <p className="text-xs text-muted-foreground">Demo Mode</p>
+        <div className="p-4 border-t border-white/20">
+          <p className="text-xs text-white/50 font-medium">Demo Mode</p>
         </div>
       </aside>
 
@@ -490,6 +529,13 @@ function App() {
                       </span>
                       <span className="text-muted-foreground text-xs">{pipelineStatus?.files?.review_json ? 'Saved' : 'Missing'}</span>
                     </li>
+                    <li className="flex items-center justify-between text-sm">
+                      <span className="flex items-center gap-2 text-foreground">
+                        <div className={`w-2 h-2 rounded-full ${pipelineStatus?.files?.export_json ? 'bg-green-500' : 'bg-yellow-500'}`} />
+                        Verified Export
+                      </span>
+                      <span className="text-muted-foreground text-xs">{pipelineStatus?.files?.export_json ? 'Exported' : 'Missing'}</span>
+                    </li>
                   </ul>
                 </div>
 
@@ -511,13 +557,29 @@ function App() {
                       )}
                       <span>{isSaving ? 'Saving...' : saveSuccess ? 'Saved!' : 'Review Detections'}</span>
                     </button>
-                    <button className="flex flex-col items-center justify-center p-3 rounded-lg border border-border bg-muted/30 hover:bg-primary/5 hover:border-primary/20 transition-all group">
-                      <Download className="w-5 h-5 mb-1 text-muted-foreground group-hover:text-primary transition-colors" />
-                      <span className="text-xs font-medium text-foreground">Export CSV</span>
+                    <button 
+                      onClick={() => handleExport('csv')}
+                      disabled={isExporting.csv || candidates.length === 0}
+                      className="flex flex-col items-center justify-center p-3 rounded-lg border border-border bg-muted/30 hover:bg-primary/5 hover:border-primary/20 transition-all group disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isExporting.csv ? (
+                        <Loader2 className="w-5 h-5 mb-1 animate-spin text-primary" />
+                      ) : (
+                        <Download className="w-5 h-5 mb-1 text-muted-foreground group-hover:text-primary transition-colors" />
+                      )}
+                      <span className="text-xs font-medium text-foreground">{isExporting.csv ? 'Exporting...' : 'Export CSV'}</span>
                     </button>
-                    <button className="flex flex-col items-center justify-center p-3 rounded-lg border border-border bg-muted/30 hover:bg-primary/5 hover:border-primary/20 transition-all group">
-                      <FileJson className="w-5 h-5 mb-1 text-muted-foreground group-hover:text-primary transition-colors" />
-                      <span className="text-xs font-medium text-foreground">Export JSON</span>
+                    <button 
+                      onClick={() => handleExport('json')}
+                      disabled={isExporting.json || candidates.length === 0}
+                      className="flex flex-col items-center justify-center p-3 rounded-lg border border-border bg-muted/30 hover:bg-primary/5 hover:border-primary/20 transition-all group disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isExporting.json ? (
+                        <Loader2 className="w-5 h-5 mb-1 animate-spin text-primary" />
+                      ) : (
+                        <FileJson className="w-5 h-5 mb-1 text-muted-foreground group-hover:text-primary transition-colors" />
+                      )}
+                      <span className="text-xs font-medium text-foreground">{isExporting.json ? 'Exporting...' : 'Export JSON'}</span>
                     </button>
                   </div>
                 </div>

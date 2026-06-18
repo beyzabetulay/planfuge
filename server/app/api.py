@@ -140,13 +140,17 @@ def save_reviews(plan_id: str, candidates: list[dict[str, Any]]) -> dict:
 
 
 @app.post("/api/exports/json/{plan_id}")
-def export_verified_json(plan_id: str, candidates: list[dict[str, Any]]) -> dict:
-    return export_verified_openings(_get_project_root(), plan_id, candidates)
+def export_verified_json_endpoint(plan_id: str, candidates: list[dict[str, Any]]) -> Response:
+    from fastapi.responses import FileResponse
+    result = export_verified_openings(_get_project_root(), plan_id, candidates)
+    return FileResponse(path=result["path"], filename=f"{plan_id}_verified_openings.json", media_type="application/json")
 
 
 @app.post("/api/exports/csv/{plan_id}")
-def export_verified_csv(plan_id: str, candidates: list[dict[str, Any]]) -> dict:
-    return export_verified_openings_csv(_get_project_root(), plan_id, candidates)
+def export_verified_csv_endpoint(plan_id: str, candidates: list[dict[str, Any]]) -> Response:
+    from fastapi.responses import FileResponse
+    result = export_verified_openings_csv(_get_project_root(), plan_id, candidates)
+    return FileResponse(path=result["path"], filename=f"{plan_id}_verified_openings.csv", media_type="text/csv")
 
 
 @app.get("/api/status/{plan_id}")
