@@ -41,6 +41,9 @@ def normalize_ocr_text(text: str) -> str:
     # 1. Normalize @ followed by digits to Ø: e.g. @15 -> Ø15, @25 -> Ø25
     normalized = re.sub(r'@\s*(\d{1,3})', r'Ø\1', normalized)
     
+    # 2. Normalize rectangular dimension separators to '/' between digits (e.g. 65 \ 38 -> 65/38, 65 l 38 -> 65/38, 65x38 -> 65/38)
+    normalized = re.sub(r'(\d{1,3})\s*(?:\\|X|L|\|)\s*(\d{1,3})', r'\1/\2', normalized)
+    
     # Check if a label prefix is nearby (WDB, DDB, UZDB, DDP)
     has_prefix = any(p in normalized for p in ("WDB", "DDB", "UZDB", "DDP"))
     
