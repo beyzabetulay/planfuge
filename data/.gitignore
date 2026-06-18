@@ -19,6 +19,7 @@
 !metadata/*.json
 !annotations/
 !annotations/.gitkeep
+!annotations/*.json
 !words/
 !words/*.json
 !*.py

@@ -1,0 +1,114 @@
+[
+  {
+    "example_id": "SP_U1_0004-EX-01",
+    "plan_id": "SP_U1_0004",
+    "rough_bbox_image": [
+      3062,
+      981,
+      3197,
+      1149
+    ],
+    "target_type": "opening_label",
+    "expected_text": "WDB",
+    "is_opening_relevant": true,
+    "comment": "In-bounds — coordinates from words.json"
+  },
+  {
+    "example_id": "SP_U1_0004-EX-02",
+    "plan_id": "SP_U1_0004",
+    "rough_bbox_image": [
+      2120,
+      4254,
+      2269,
+      4551
+    ],
+    "target_type": "opening_label",
+    "expected_text": "DDB20/50",
+    "is_opening_relevant": true,
+    "comment": "In-bounds — coordinates from words.json"
+  },
+  {
+    "example_id": "SP_U1_0004-EX-03",
+    "plan_id": "SP_U1_0004",
+    "rough_bbox_image": [
+      996,
+      4913,
+      1145,
+      5211
+    ],
+    "target_type": "opening_label",
+    "expected_text": "DDB20/20",
+    "is_opening_relevant": true,
+    "comment": "In-bounds — coordinates from words.json"
+  },
+  {
+    "example_id": "SP_U1_0004-EX-04",
+    "plan_id": "SP_U1_0004",
+    "rough_bbox_image": [
+      3803,
+      8427,
+      3948,
+      8598
+    ],
+    "target_type": "opening_label",
+    "expected_text": "DDB",
+    "is_opening_relevant": true,
+    "comment": "In-bounds — coordinates from words.json"
+  },
+  {
+    "example_id": "SP_U1_0004-EX-05",
+    "plan_id": "SP_U1_0004",
+    "rough_bbox_image": [
+      3165,
+      8753,
+      3314,
+      9050
+    ],
+    "target_type": "opening_label",
+    "expected_text": "DDB60/40",
+    "is_opening_relevant": true,
+    "comment": "In-bounds — coordinates from words.json"
+  },
+  {
+    "example_id": "SP_U1_0004-EX-06",
+    "plan_id": "SP_U1_0004",
+    "rough_bbox_image": [
+      2775,
+      3246,
+      3109,
+      3395
+    ],
+    "target_type": "opening_label",
+    "expected_text": "DDB130/140",
+    "is_opening_relevant": true,
+    "comment": "In-bounds — coordinates from words.json"
+  },
+  {
+    "example_id": "SP_U1_0004-EX-07",
+    "plan_id": "SP_U1_0004",
+    "rough_bbox_image": [
+      2756,
+      867,
+      2890,
+      1138
+    ],
+    "target_type": "non_opening_label",
+    "expected_text": "UKRD/OKRB",
+    "is_opening_relevant": false,
+    "comment": "Non-opening label — in-bounds, from words.json"
+  },
+  {
+    "example_id": "SP_U1_0004-EX-08",
+    "plan_id": "SP_U1_0004",
+    "rough_bbox_image": [
+      1123,
+      6730,
+      1272,
+      6877
+    ],
+    "target_type": "non_opening_label",
+    "expected_text": "RA",
+    "is_opening_relevant": false,
+    "comment": "Non-opening label — in-bounds, from words.json"
+  }
+]
