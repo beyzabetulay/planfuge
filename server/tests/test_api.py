@@ -146,6 +146,56 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(data["candidate_count"], 1)
         self.assertEqual(data["candidates"][0]["source"], "sample")
 
+    def test_metadata_endpoint_loads_valid_metadata(self) -> None:
+        import asyncio
+
+        payload = {
+            "plan_id": "SP_U1_0002",
+            "image_width_px": 18896,
+            "scale_text_visible": "M1:50",
+            "source_type": "rendered_png",
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            metadata_dir = root / "data" / "metadata"
+            metadata_dir.mkdir(parents=True)
+            metadata_file = metadata_dir / "SP_U1_0002_metadata.json"
+            metadata_file.write_text(json.dumps(payload))
+
+            async def run_request() -> dict:
+                app.state.project_root = root
+                transport = ASGITransport(app=app)
+                async with AsyncClient(transport=transport, base_url="http://test") as client:
+                    response = await client.get("/api/metadata/SP_U1_0002")
+                    return response.json()
+
+            data = asyncio.run(run_request())
+
+        self.assertEqual(data["plan_id"], "SP_U1_0002")
+        self.assertTrue(data["exists"])
+        self.assertEqual(data["metadata"]["image_width_px"], 18896)
+        self.assertEqual(data["metadata"]["scale_text_visible"], "M1:50")
+
+    def test_metadata_endpoint_missing_file_returns_warning(self) -> None:
+        import asyncio
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            async def run_request() -> dict:
+                app.state.project_root = root
+                transport = ASGITransport(app=app)
+                async with AsyncClient(transport=transport, base_url="http://test") as client:
+                    response = await client.get("/api/metadata/SP_U1_9999")
+                    return response.json()
+
+            data = asyncio.run(run_request())
+
+        self.assertEqual(data["plan_id"], "SP_U1_9999")
+        self.assertFalse(data["exists"])
+        self.assertTrue(any("not found" in w for w in data["warnings"]))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -17,6 +17,7 @@ from server.app.services.calculations import (
     get_review_status,
 )
 from server.app.services.candidate_loader import load_candidates, load_sample_candidates
+from server.app.services.metadata_loader import load_metadata
 from server.app.services.csv_export import CSV_COLUMNS, serialize_csv, to_csv_row
 
 
@@ -99,5 +100,11 @@ def get_sample_candidates() -> dict:
 @app.get("/api/candidates/{plan_id}")
 def get_candidates(plan_id: str) -> dict:
     result = load_candidates(_get_project_root(), plan_id)
+    return asdict(result)
+
+
+@app.get("/api/metadata/{plan_id}")
+def get_metadata(plan_id: str) -> dict:
+    result = load_metadata(_get_project_root(), plan_id)
     return asdict(result)
 
