@@ -211,6 +211,11 @@ def group_openings(openings: list[Opening], candidates: list[dict], max_pixel_di
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--pdf",
+        default=None,
+        help="Path to a single PDF file to process. Overrides --pdf-dir."
+    )
+    parser.add_argument(
         "--pdf-dir",
         default=str(REPO_ROOT.parent / "pdf"),
         help="Path to the folder containing PDF files. Defaults to ../pdf."
@@ -228,19 +233,26 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    pdf_dir = Path(args.pdf_dir).resolve()
     output_root = Path(args.out).resolve()
 
-    if not pdf_dir.exists() or not pdf_dir.is_dir():
-        print(f"Error: PDF directory not found or is not a directory: {pdf_dir}", file=sys.stderr)
-        sys.exit(1)
+    if args.pdf:
+        single_pdf = Path(args.pdf).resolve()
+        if not single_pdf.exists() or not single_pdf.is_file():
+            print(f"Error: PDF file not found: {single_pdf}", file=sys.stderr)
+            sys.exit(1)
+        pdf_files = [single_pdf]
+        print(f"Running pipeline on single PDF: {single_pdf}")
+    else:
+        pdf_dir = Path(args.pdf_dir).resolve()
+        if not pdf_dir.exists() or not pdf_dir.is_dir():
+            print(f"Error: PDF directory not found or is not a directory: {pdf_dir}", file=sys.stderr)
+            sys.exit(1)
+        pdf_files = sorted(list(pdf_dir.glob("*.pdf")))
+        if not pdf_files:
+            print(f"No PDF files found in {pdf_dir}", file=sys.stderr)
+            sys.exit(0)
+        print(f"Running pipeline on {len(pdf_files)} PDF files from {pdf_dir}")
 
-    pdf_files = sorted(list(pdf_dir.glob("*.pdf")))
-    if not pdf_files:
-        print(f"No PDF files found in {pdf_dir}", file=sys.stderr)
-        sys.exit(0)
-
-    print(f"Running pipeline on {len(pdf_files)} PDF files from {pdf_dir}")
     print(f"Output root: {output_root}")
     print(f"Clean red annotation markup: {args.clean_red}")
 

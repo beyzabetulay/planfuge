@@ -17,8 +17,12 @@ def parse_opening_label(text: str) -> dict[str, Any] | None:
     """
     normalized = _normalize_text(text)
     label_type = _parse_label_type(normalized)
-    width_mm, height_mm = _parse_rectangular_dimensions(normalized)
     diameter_mm = _parse_diameter(normalized)
+    # An explicit separator (\ x l |) in the raw text strongly signals a dimension expression.
+    # In that case, we allow dimension parsing even without a label prefix.
+    has_explicit_separator = bool(re.search(r'\d\s*(?:\\|[xXlL\|])\s*\d', text))
+    require_prefix = label_type is None and diameter_mm is None and not has_explicit_separator
+    width_mm, height_mm = _parse_rectangular_dimensions(normalized, require_prefix=require_prefix)
 
     if label_type is None and width_mm is None and diameter_mm is None:
         return None
@@ -84,12 +88,21 @@ def _parse_label_type(text: str) -> str | None:
     return None
 
 
-def _parse_rectangular_dimensions(text: str) -> tuple[int | None, int | None]:
-    pattern = r"(?<!\d)(\d{1,3})\s*/\s*(\d{1,3})(?!\d)"
+def _parse_rectangular_dimensions(text: str, require_prefix: bool = False) -> tuple[int | None, int | None]:
+    # Require both sides to be at least 2 digits.
+    # Not preceded/followed by a digit or decimal point (avoids matching 13.5/40 → 3/40).
+    # Works for both spaced "WDB 40/20" and compact "DDB130/140" forms.
+    pattern = r"(?<![\d.])(\d{2,3})\s*/\s*(\d{2,3})(?![\d.])"
     match = re.search(pattern, text)
 
     if not match:
         return None, None
+
+    # If no label prefix is present, only extract dimensions when text has a known label type
+    if require_prefix:
+        has_label_nearby = any(p in text for p in ("WDB", "DDB", "UZDB", "DDP", "HSI"))
+        if not has_label_nearby:
+            return None, None
 
     width_cm, height_cm = (int(match.group(1)), int(match.group(2)))
     return width_cm * 10, height_cm * 10
