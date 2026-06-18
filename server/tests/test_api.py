@@ -226,6 +226,44 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(saved_data["plan_id"], "SP_U1_0003")
             self.assertEqual(saved_data["candidate_count"], 2)
 
+    def test_get_reviews_endpoint_loads_draft(self) -> None:
+        import asyncio
+
+        payload = {
+            "plan_id": "SP_U1_0003",
+            "saved_at": "2023-10-01T12:00:00Z",
+            "candidate_count": 1,
+            "candidates": [
+                {
+                    "candidate_id": "cand-001",
+                    "source": "cv",
+                    "bbox_image": [10, 20, 30, 40],
+                    "status": "verified",
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            reviews_dir = root / "outputs" / "reviews"
+            reviews_dir.mkdir(parents=True)
+            review_file = reviews_dir / "SP_U1_0003_reviewed_candidates.json"
+            review_file.write_text(json.dumps(payload))
+
+            async def run_request() -> dict:
+                app.state.project_root = root
+                transport = ASGITransport(app=app)
+                async with AsyncClient(transport=transport, base_url="http://test") as client:
+                    response = await client.get("/api/reviews/SP_U1_0003")
+                    return response.json()
+
+            data = asyncio.run(run_request())
+
+        self.assertEqual(data["plan_id"], "SP_U1_0003")
+        self.assertEqual(data["candidate_count"], 1)
+        self.assertEqual(data["source"], "review")
+        self.assertEqual(data["candidates"][0]["status"], "verified")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -17,7 +17,11 @@ from server.app.services.calculations import (
     calculate_weight_kg,
     get_review_status,
 )
-from server.app.services.candidate_loader import load_candidates, load_sample_candidates
+from server.app.services.candidate_loader import (
+    load_candidates,
+    load_reviewed_candidates,
+    load_sample_candidates,
+)
 from server.app.services.csv_export import CSV_COLUMNS, serialize_csv, to_csv_row
 from server.app.services.metadata_loader import load_metadata
 from server.app.services.review_saver import save_reviewed_candidates
@@ -108,6 +112,12 @@ def get_candidates(plan_id: str) -> dict:
 @app.get("/api/metadata/{plan_id}")
 def get_metadata(plan_id: str) -> dict:
     result = load_metadata(_get_project_root(), plan_id)
+    return asdict(result)
+
+
+@app.get("/api/reviews/{plan_id}")
+def get_reviews(plan_id: str) -> dict:
+    result = load_reviewed_candidates(_get_project_root(), plan_id)
     return asdict(result)
 
 
