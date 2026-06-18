@@ -29,13 +29,18 @@ def load_sample_candidates(project_root: Path) -> CandidateLoadResult:
     return _load_and_validate(sample_path, fallback_plan_id="SAMPLE_DEMO", source="sample")
 
 
+def load_reviewed_candidates(project_root: Path, plan_id: str) -> CandidateLoadResult:
+    review_path = project_root / "outputs" / "reviews" / f"{plan_id}_reviewed_candidates.json"
+    return _load_and_validate(review_path, fallback_plan_id=plan_id, source="review")
+
+
 def _load_and_validate(
     path: Path,
     fallback_plan_id: str,
     source: str,
 ) -> CandidateLoadResult:
     if not path.is_file():
-        level = "warnings" if source == "file" else "errors"
+        level = "warnings" if source in ("file", "review") else "errors"
         message = f"candidate file not found: {path}"
         if source == "sample":
             message = f"sample {message}"
