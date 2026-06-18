@@ -89,7 +89,7 @@ function App() {
         throw new Error('No draft found')
       })
       .then(data => {
-        if (data && data.candidates) {
+        if (data && data.candidates && data.candidates.length > 0) {
           setCandidates(data.candidates)
           setLoadingCandidates(false)
         } else {

@@ -238,7 +238,7 @@ class TestPngCandidateExtractor(unittest.TestCase):
             )
             
             # Verify clean_red and output_root were passed to run_ocr_on_crops
-            mock_ocr.assert_called_once_with(crop_metadata, psm=6, clean_red=True, output_root=out_path)
+            mock_ocr.assert_called_once_with(crop_metadata, psm=6, clean_red=True, output_root=out_path.resolve())
             
             self.assertEqual(len(candidates), 1)
             c = candidates[0]

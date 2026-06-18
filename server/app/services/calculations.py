@@ -31,11 +31,11 @@ def calculate_weight_kg(opening: Opening, config: WeightConfig = WeightConfig())
 
 
 def get_review_status(opening: Opening, config: WeightConfig = WeightConfig()) -> str:
-    if opening.review_required:
-        return STATUS_REVIEW_REQUIRED
-
     if calculate_weight_kg(opening, config) > config.max_weight_kg:
         return STATUS_SPLIT_RECOMMENDED
+
+    if opening.review_required:
+        return STATUS_REVIEW_REQUIRED
 
     return STATUS_READY
 

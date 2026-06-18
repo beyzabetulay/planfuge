@@ -25,7 +25,7 @@ class PlanConfig:
         self.color_zones: list[dict[str, Any]] = data.get("color_zones", [])
 
     @classmethod
-    def load_for_plan(cls, project_root: Path, plan_id: str) -> PlanConfig:
+    def load_for_plan(cls, project_root: Path, plan_id: str) -> "PlanConfig":
         config_path = project_root / "data" / "config" / f"{plan_id}_config.json"
         if not config_path.is_file():
             return cls(plan_id)

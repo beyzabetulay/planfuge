@@ -20,6 +20,7 @@ except ImportError:
 
 from src.candidates.png_candidate_extractor import run_png_extraction_pipeline
 from server.app.models import Opening, WeightConfig, GEOMETRY_ROUND, GEOMETRY_RECTANGULAR
+from server.app.services.contract_candidate_export import export_contract_openings_csv
 from server.app.services.csv_export import serialize_csv, to_csv_row
 from src.config.plan_config import PlanConfig
 from src.config.auto_config import auto_generate_config
@@ -341,13 +342,8 @@ def main() -> None:
             contract_dir.mkdir(parents=True, exist_ok=True)
             csv_path = contract_dir / f"{plan_id}_contract.csv"
 
-            plan_config = PlanConfig.load_for_plan(REPO_ROOT, plan_id)  # uses auto-generated config if no manual one
-            openings = [candidate_to_opening(cand, plan_id, plan_config) for cand in candidates]
-            grouped_openings = group_openings(openings, candidates)
-            config = WeightConfig()
-            rows = [to_csv_row(op, config) for op in grouped_openings]
-            csv_content = serialize_csv(rows)
-            csv_path.write_text(csv_content, encoding="utf-8")
+            export_result = export_contract_openings_csv(REPO_ROOT, plan_id, candidates)
+            csv_path.write_text(Path(export_result["path"]).read_text(encoding="utf-8"), encoding="utf-8")
             print(f"    Saved contract CSV to: {csv_path}")
         except Exception as e:
             print(f"  Error running extraction pipeline for {plan_id}: {e}", file=sys.stderr)

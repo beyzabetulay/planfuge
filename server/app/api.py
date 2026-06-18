@@ -23,10 +23,9 @@ from server.app.services.candidate_loader import (
     load_reviewed_candidates,
     load_sample_candidates,
 )
+from server.app.services.contract_export import generate_contract_csv, generate_contract_json
 from server.app.services.csv_export import CSV_COLUMNS, serialize_csv, to_csv_row
-from server.app.services.json_export import export_verified_openings
 from server.app.services.metadata_loader import load_metadata
-from server.app.services.pandas_export import export_verified_openings_csv
 from server.app.services.pipeline_status import check_pipeline_status
 from server.app.services.plan_discovery import discover_plans
 from server.app.services.review_saver import save_reviewed_candidates
@@ -141,16 +140,22 @@ def save_reviews(plan_id: str, candidates: list[dict[str, Any]]) -> dict:
 
 @app.post("/api/exports/json/{plan_id}")
 def export_verified_json_endpoint(plan_id: str, candidates: list[dict[str, Any]]) -> Response:
-    from fastapi.responses import FileResponse
-    result = export_verified_openings(_get_project_root(), plan_id, candidates)
-    return FileResponse(path=result["path"], filename=f"{plan_id}_verified_openings.json", media_type="application/json")
+    content = generate_contract_json(_get_project_root(), plan_id, candidates)
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename={plan_id}_contract.json"},
+    )
 
 
 @app.post("/api/exports/csv/{plan_id}")
 def export_verified_csv_endpoint(plan_id: str, candidates: list[dict[str, Any]]) -> Response:
-    from fastapi.responses import FileResponse
-    result = export_verified_openings_csv(_get_project_root(), plan_id, candidates)
-    return FileResponse(path=result["path"], filename=f"{plan_id}_verified_openings.csv", media_type="text/csv")
+    content = generate_contract_csv(_get_project_root(), plan_id, candidates)
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename={plan_id}_contract.csv"},
+    )
 
 
 @app.get("/api/status/{plan_id}")
