@@ -21,6 +21,7 @@ except ImportError:
 from src.candidates.png_candidate_extractor import run_png_extraction_pipeline
 from server.app.models import Opening, WeightConfig, GEOMETRY_ROUND, GEOMETRY_RECTANGULAR
 from server.app.services.csv_export import serialize_csv, to_csv_row
+from src.config.plan_config import PlanConfig
 
 
 def parse_floor(plan_id: str) -> str:
@@ -34,7 +35,51 @@ def parse_floor(plan_id: str) -> str:
     return "unknown"
 
 
-def candidate_to_opening(cand: dict, plan_id: str) -> Opening:
+def compute_grid_coordinate(x: float, y: float, plan_config: PlanConfig) -> str:
+    if not plan_config.grid_anchors:
+        return "grid_unknown"
+        
+    anchors = plan_config.grid_anchors
+    tl_pix = anchors.get("top_left_pixel")
+    tl_coord = anchors.get("top_left_coord")
+    br_pix = anchors.get("bottom_right_pixel")
+    br_coord = anchors.get("bottom_right_coord")
+    
+    if not (tl_pix and tl_coord and br_pix and br_coord):
+        return "grid_unknown"
+        
+    try:
+        def parse_coord(coord_str: str) -> tuple[int, int]:
+            parts = coord_str.split("-")
+            letter = parts[0].upper()
+            number = int(parts[1])
+            letter_idx = ord(letter) - ord("A")
+            return letter_idx, number
+            
+        tl_l_idx, tl_n = parse_coord(tl_coord)
+        br_l_idx, br_n = parse_coord(br_coord)
+        
+        dx_pix = br_pix[0] - tl_pix[0]
+        dy_pix = br_pix[1] - tl_pix[1]
+        
+        if dx_pix == 0 or dy_pix == 0:
+            return "grid_unknown"
+            
+        x_ratio = (x - tl_pix[0]) / dx_pix
+        l_idx = int(round(tl_l_idx + x_ratio * (br_l_idx - tl_l_idx)))
+        l_idx = max(0, min(25, l_idx))
+        letter = chr(ord("A") + l_idx)
+        
+        y_ratio = (y - tl_pix[1]) / dy_pix
+        n = int(round(tl_n + y_ratio * (br_n - tl_n)))
+        n = max(1, min(100, n))
+        
+        return f"{letter}-{n}"
+    except Exception:
+        return "grid_unknown"
+
+
+def candidate_to_opening(cand: dict, plan_id: str, plan_config: PlanConfig) -> Opening:
     diameter_mm = cand.get("diameter_mm")
     width_mm = cand.get("width_mm")
     height_mm = cand.get("height_mm")
@@ -59,6 +104,13 @@ def candidate_to_opening(cand: dict, plan_id: str) -> Opening:
     status = cand.get("status", "needs_review")
     review_required = (status == "needs_review" or confidence < 0.7)
 
+    # Calculate centroids
+    bbox = cand.get("bbox_image", [0, 0, 0, 0])
+    cx = bbox[0] + bbox[2] / 2
+    cy = bbox[1] + bbox[3] / 2
+    
+    grid_coord = compute_grid_coordinate(cx, cy, plan_config)
+
     return Opening(
         geometry=geometry,
         length_cm=length_cm,
@@ -69,7 +121,7 @@ def candidate_to_opening(cand: dict, plan_id: str) -> Opening:
         floor=floor,
         plan_name=plan_id,
         source_pdf=f"{plan_id}.pdf",
-        grid_coordinate="grid_unknown",
+        grid_coordinate=grid_coord,
         color_zone_id="zone_unknown",
         confidence=confidence,
         review_required=review_required,
@@ -153,7 +205,8 @@ def main() -> None:
             contract_dir.mkdir(parents=True, exist_ok=True)
             csv_path = contract_dir / f"{plan_id}_contract.csv"
 
-            openings = [candidate_to_opening(cand, plan_id) for cand in candidates]
+            plan_config = PlanConfig.load_for_plan(REPO_ROOT, plan_id)
+            openings = [candidate_to_opening(cand, plan_id, plan_config) for cand in candidates]
             config = WeightConfig()
             rows = [to_csv_row(op, config) for op in openings]
             csv_content = serialize_csv(rows)
