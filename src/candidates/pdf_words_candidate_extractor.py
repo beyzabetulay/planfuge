@@ -14,6 +14,8 @@ from src.candidates.opening_label_parser import parse_opening_label
 
 ANCHOR_PREFIXES = ("WDB", "DDB", "UZDB", "DDP")
 
+PDF_TO_IMAGE_SCALE = 300 / 72  # 300 DPI PNG from 72 DPI PDF points
+
 
 def extract_candidates_json(
     words_path: str | Path,
@@ -113,11 +115,13 @@ def _candidate_from_block(
     block_words: list[dict[str, Any]],
     parsed: dict[str, Any],
 ) -> dict[str, Any]:
+    bbox_pdf = _union_bbox(block_words)
     candidate = {
         "candidate_id": f"OP-{candidate_number:03d}",
         "source": "pdf_words",
         "raw_text": raw_text,
-        "bbox_pdf": _union_bbox(block_words),
+        "bbox_pdf": bbox_pdf,
+        "bbox_image": _pdf_bbox_to_image_bbox(bbox_pdf),
         "confidence": 0.85,
         "status": "needs_review",
     }
@@ -132,6 +136,13 @@ def _union_bbox(words: list[dict[str, Any]]) -> list[float]:
         max(word["x1"] for word in words),
         max(word["y1"] for word in words),
     ]
+
+
+def _pdf_bbox_to_image_bbox(bbox_pdf: list[float]) -> list[int]:
+    """Convert PDF point coordinates [x0,y0,x1,y1] to image pixel [x,y,w,h] at 300 DPI."""
+    x0, y0, x1, y1 = bbox_pdf
+    scale = PDF_TO_IMAGE_SCALE
+    return [int(x0 * scale), int(y0 * scale), int((x1 - x0) * scale), int((y1 - y0) * scale)]
 
 
 def _center_y(word: dict[str, Any]) -> float:

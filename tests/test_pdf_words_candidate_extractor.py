@@ -31,6 +31,7 @@ class PdfWordsCandidateExtractorTest(unittest.TestCase):
                 "label_type": "WDB",
                 "raw_text": "WDB 70/20 OK -60 UKRD",
                 "bbox_pdf": [10.0, 10.0, 160.0, 20.0],
+                "bbox_image": [41, 41, 625, 41],
                 "width_mm": 700,
                 "height_mm": 200,
                 "diameter_mm": None,
