@@ -331,7 +331,9 @@ def main() -> None:
                 image_path=png_path,
                 plan_id=plan_id,
                 output_root=output_root,
-                clean_red=args.clean_red
+                clean_red=args.clean_red,
+                psm=11,
+                project_root=REPO_ROOT,
             )
             print(f"    Extracted {len(candidates)} candidate(s).")
             candidates_path = output_root / "candidates" / f"{plan_id}_candidates.json"

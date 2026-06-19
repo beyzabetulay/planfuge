@@ -263,7 +263,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["Length/cm"], "10.0")
 
-    def test_csv_export_with_no_verified_candidates_has_headers_only(self) -> None:
+    def test_csv_export_includes_unverified_geometry_as_review_required(self) -> None:
         payload = [
             {"candidate_id": "cand-001", "status": "needs_review", "diameter_mm": 100},
             {"candidate_id": "cand-002", "status": "rejected", "diameter_mm": 200},
@@ -275,22 +275,9 @@ class ApiTests(unittest.TestCase):
             csv_text = response.body.decode("utf-8-sig")
             rows = list(csv.DictReader(io.StringIO(csv_text)))
 
-        self.assertEqual(rows, [])
-        self.assertEqual(
-            next(csv.reader(io.StringIO(csv_text))),
-            [
-                "Floor",
-                "Construction phase/Plan name",
-                "Length/cm",
-                "Width/cm",
-                "Height/cm",
-                "Geometry",
-                "Type",
-                "Number",
-                "Weight/kg",
-                "Review status",
-            ],
-        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["Length/cm"], "10.0")
+        self.assertEqual(rows[0]["Review status"], "review_required")
 
     def test_csv_export_keeps_spatially_distant_openings_separate(self) -> None:
         payload = [

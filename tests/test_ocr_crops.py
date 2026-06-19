@@ -161,6 +161,26 @@ class TestOcrCrops(unittest.TestCase):
         self.assertTrue(res["ocr_available"])
         self.assertEqual(res["used_lang"], "deu+eng")
 
+    @patch("shutil.which")
+    @patch("pytesseract.image_to_string")
+    def test_clean_red_mode_keeps_the_more_complete_original_ocr_result(
+        self,
+        mock_image_to_string,
+        mock_which,
+    ):
+        mock_which.return_value = "/usr/bin/tesseract"
+        mock_image_to_string.side_effect = [
+            "RA -65 UKRD",
+            "DDB HSI150 RA -65 UKRD",
+        ]
+
+        results = run_ocr_on_crops(self.crops_metadata, psm=11, clean_red=True)
+
+        self.assertEqual(results[0]["ocr_text"], "DDB HSI150 RA -65 UKRD")
+        self.assertEqual(mock_image_to_string.call_count, 2)
+        for call in mock_image_to_string.call_args_list:
+            self.assertIn("--psm 11", call.kwargs["config"])
+
 
 if __name__ == "__main__":
     unittest.main()

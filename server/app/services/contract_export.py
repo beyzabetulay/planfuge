@@ -88,8 +88,12 @@ def _opening_type(label_type: str | None) -> str:
     return "Unknown"
 
 
-def _verified_candidates(candidates: list[dict]) -> list[dict]:
-    return [candidate for candidate in candidates if candidate.get("status") == "verified"]
+def _reviewable_candidates(candidates: list[dict]) -> list[dict]:
+    return [
+        candidate
+        for candidate in candidates
+        if candidate.get("status") not in {"rejected", "duplicate_candidate"}
+    ]
 
 
 def _candidate_center(candidate: dict) -> tuple[float, float] | None:
@@ -152,7 +156,11 @@ def _build_rows(project_root: Path, plan_id: str, candidates: list[dict]) -> lis
             "geometry": geometry,
             "opening_type": o_type,
             "center": center,
-            "review_required": uses_default_height or c.get("confidence", 0.5) < 0.60,
+            "review_required": (
+                c.get("status") != "verified"
+                or uses_default_height
+                or c.get("confidence", 0.5) < 0.60
+            ),
         })
 
     groups: list[dict] = []
@@ -197,7 +205,7 @@ def _build_rows(project_root: Path, plan_id: str, candidates: list[dict]) -> lis
 
 def generate_contract_csv(project_root: Path, plan_id: str, candidates: list[dict]) -> bytes:
     """Return Excel-compatible UTF-8 BOM CSV bytes."""
-    rows = _build_rows(project_root, plan_id, _verified_candidates(candidates))
+    rows = _build_rows(project_root, plan_id, _reviewable_candidates(candidates))
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=CONTRACT_COLUMNS, lineterminator="\r\n")
     writer.writeheader()
@@ -207,7 +215,7 @@ def generate_contract_csv(project_root: Path, plan_id: str, candidates: list[dic
 
 def generate_contract_json(project_root: Path, plan_id: str, candidates: list[dict]) -> bytes:
     """Return JSON bytes of the contract-format openings."""
-    rows = _build_rows(project_root, plan_id, _verified_candidates(candidates))
+    rows = _build_rows(project_root, plan_id, _reviewable_candidates(candidates))
     payload = {
         "plan_id": plan_id,
         "opening_count": len(rows),

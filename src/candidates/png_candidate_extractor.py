@@ -3,6 +3,8 @@ import json
 from pathlib import Path
 from typing import Any
 from src.candidates.opening_label_parser import parse_opening_label, normalize_ocr_text
+from src.candidates.pdf_words_candidate_extractor import extract_candidates_from_words
+from src.candidates.validation import compute_iou, is_center_inside
 from src.image.red_annotation_detector import detect_red_regions, save_red_debug_mask
 from src.image.crop_regions import crop_red_regions
 from src.image.ocr_crops import run_ocr_on_crops
@@ -193,6 +195,7 @@ def run_png_extraction_pipeline(
     default_status: str = "needs_review",
     clean_red: bool = False,
     project_root: str | Path | None = None,
+    words_path: str | Path | None = None,
 ) -> list[dict[str, Any]]:
     """
     Orchestrate the end-to-end PNG extraction pipeline.
@@ -217,6 +220,13 @@ def run_png_extraction_pipeline(
     crops_metadata_path = debug_dir / f"{plan_id}_red_crops.json"
     ocr_results_path = debug_dir / f"{plan_id}_ocr_results.json"
     candidates_path = candidates_dir / f"{plan_id}_candidates.json"
+    config_root = Path(project_root).resolve() if project_root else output_root.parent
+    resolved_words_path = (
+        Path(words_path)
+        if words_path is not None
+        else config_root / "data" / "words" / f"{plan_id}_words.json"
+    )
+    word_candidates = _load_word_candidates(resolved_words_path)
     
     # 2. Check if no red regions are detected
     if not regions:
@@ -227,15 +237,19 @@ def run_png_extraction_pipeline(
         with open(ocr_results_path, "w", encoding="utf-8") as f:
             json.dump([], f, indent=2)
             
-        empty_payload = {
+        assign_candidate_spatial_fields(
+            word_candidates,
+            PlanConfig.load_for_plan(config_root, plan_id),
+        )
+        payload = {
             "plan_id": plan_id,
-            "candidate_count": 0,
-            "candidates": []
+            "candidate_count": len(word_candidates),
+            "candidates": word_candidates,
         }
         with open(candidates_path, "w", encoding="utf-8") as f:
-            json.dump(empty_payload, f, indent=2)
+            json.dump(payload, f, indent=2)
             
-        return []
+        return word_candidates
         
     # 3. Crop red regions
     crop_metadata = crop_red_regions(
@@ -259,7 +273,7 @@ def run_png_extraction_pipeline(
         ocr_results=ocr_results,
         default_status=default_status
     )
-    config_root = Path(project_root).resolve() if project_root else output_root.parent
+    candidates = _merge_candidate_sources(word_candidates, candidates)
     assign_candidate_spatial_fields(candidates, PlanConfig.load_for_plan(config_root, plan_id))
     
     # 6. Validate candidates
@@ -276,3 +290,55 @@ def run_png_extraction_pipeline(
         json.dump(payload, f, indent=2, ensure_ascii=False)
 
     return candidates
+
+
+def _load_word_candidates(words_path: str | Path | None) -> list[dict[str, Any]]:
+    if words_path is None:
+        return []
+
+    resolved_path = Path(words_path)
+    if not resolved_path.is_file():
+        return []
+
+    words = json.loads(resolved_path.read_text(encoding="utf-8"))
+    return extract_candidates_from_words(words)
+
+
+def _merge_candidate_sources(
+    word_candidates: list[dict[str, Any]],
+    ocr_candidates: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not word_candidates:
+        return ocr_candidates
+
+    merged = [dict(candidate) for candidate in word_candidates]
+    for ocr_candidate in ocr_candidates:
+        overlapping_word = next(
+            (
+                candidate
+                for candidate in merged
+                if _candidate_boxes_overlap(candidate, ocr_candidate)
+            ),
+            None,
+        )
+        if overlapping_word is not None:
+            if not overlapping_word.get("crop_path") and ocr_candidate.get("crop_path"):
+                overlapping_word["crop_path"] = ocr_candidate["crop_path"]
+            continue
+        merged.append(dict(ocr_candidate))
+
+    for index, candidate in enumerate(merged, start=1):
+        candidate["candidate_id"] = f"OP-{index:03d}"
+    return merged
+
+
+def _candidate_boxes_overlap(first: dict[str, Any], second: dict[str, Any]) -> bool:
+    first_bbox = first.get("bbox_image")
+    second_bbox = second.get("bbox_image")
+    if not first_bbox or not second_bbox:
+        return False
+    return (
+        compute_iou(first_bbox, second_bbox) >= 0.05
+        or is_center_inside(first_bbox, second_bbox)
+        or is_center_inside(second_bbox, first_bbox)
+    )

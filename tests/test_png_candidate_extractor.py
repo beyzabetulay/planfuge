@@ -212,6 +212,46 @@ class TestPngCandidateExtractor(unittest.TestCase):
             self.assertEqual(payload["candidates"], [])
 
     @patch("src.candidates.png_candidate_extractor.detect_red_regions")
+    def test_run_png_extraction_pipeline_uses_pdf_words_when_ocr_has_no_regions(self, mock_detect):
+        mock_detect.return_value = ([], Image.new("L", (100, 100), 0))
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            image_path = root / "SP_U1_0003.png"
+            words_dir = root / "data" / "words"
+            words_dir.mkdir(parents=True)
+            words_path = words_dir / "SP_U1_0003_words.json"
+            output_root = root / "outputs"
+            Image.new("RGB", (100, 100), "white").save(image_path)
+            words_path.write_text(json.dumps([
+                {
+                    "text": "DDB130/140",
+                    "x0": 5,
+                    "y0": 7,
+                    "x1": 80,
+                    "y1": 20,
+                    "page": 1,
+                }
+            ]))
+
+            candidates = run_png_extraction_pipeline(
+                image_path=image_path,
+                plan_id="SP_U1_0003",
+                output_root=output_root,
+                project_root=root,
+            )
+
+            self.assertEqual(len(candidates), 1)
+            self.assertEqual(candidates[0]["source"], "pdf_words")
+            self.assertEqual(candidates[0]["width_mm"], 1300)
+            self.assertEqual(candidates[0]["height_mm"], 1400)
+
+            saved = json.loads(
+                (output_root / "candidates" / "SP_U1_0003_candidates.json").read_text()
+            )
+            self.assertEqual(saved["candidate_count"], 1)
+
+    @patch("src.candidates.png_candidate_extractor.detect_red_regions")
     @patch("src.candidates.png_candidate_extractor.crop_red_regions")
     @patch("src.candidates.png_candidate_extractor.run_ocr_on_crops")
     def test_run_png_extraction_pipeline_happy_path(self, mock_ocr, mock_crop, mock_detect):
@@ -260,6 +300,69 @@ class TestPngCandidateExtractor(unittest.TestCase):
             self.assertEqual(payload["plan_id"], "mock_plan")
             self.assertEqual(payload["candidate_count"], 1)
             self.assertIsInstance(payload["candidates"], list)
+
+    @patch("src.candidates.png_candidate_extractor.detect_red_regions")
+    @patch("src.candidates.png_candidate_extractor.crop_red_regions")
+    @patch("src.candidates.png_candidate_extractor.run_ocr_on_crops")
+    def test_pdf_words_replace_overlapping_unparsed_ocr_candidate(
+        self,
+        mock_ocr,
+        mock_crop,
+        mock_detect,
+    ):
+        bbox_image = [41, 41, 625, 41]
+        mock_detect.return_value = (
+            [{"region_id": "RED-001", "bbox_image": bbox_image}],
+            Image.new("L", (100, 100), 0),
+        )
+        mock_crop.return_value = [{
+            "region_id": "RED-001",
+            "crop_path": "mock_crop.png",
+            "bbox_image": bbox_image,
+            "crop_bbox_image": bbox_image,
+        }]
+        mock_ocr.return_value = [{
+            "region_id": "RED-001",
+            "crop_path": "mock_crop.png",
+            "ocr_text": "",
+            "ocr_available": True,
+        }]
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            image_path = root / "SP_U1_0003.png"
+            words_path = root / "SP_U1_0003_words.json"
+            Image.new("RGB", (100, 100), "white").save(image_path)
+            words_path.write_text(json.dumps([
+                {
+                    "text": "WDB",
+                    "x0": 10,
+                    "y0": 10,
+                    "x1": 35,
+                    "y1": 20,
+                    "page": 1,
+                },
+                {
+                    "text": "70/20",
+                    "x0": 40,
+                    "y0": 10,
+                    "x1": 75,
+                    "y1": 20,
+                    "page": 1,
+                },
+            ]))
+
+            candidates = run_png_extraction_pipeline(
+                image_path=image_path,
+                plan_id="SP_U1_0003",
+                output_root=root / "outputs",
+                words_path=words_path,
+            )
+
+            self.assertEqual(len(candidates), 1)
+            self.assertEqual(candidates[0]["source"], "pdf_words")
+            self.assertEqual(candidates[0]["width_mm"], 700)
+            self.assertEqual(candidates[0]["height_mm"], 200)
 
 
 if __name__ == "__main__":

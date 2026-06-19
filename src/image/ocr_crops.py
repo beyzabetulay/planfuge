@@ -2,6 +2,7 @@ import logging
 import shutil
 from pathlib import Path
 from PIL import Image
+from src.candidates.opening_label_parser import normalize_ocr_text, parse_opening_label
 Image.MAX_IMAGE_PIXELS = None
 
 # Setup logger
@@ -23,6 +24,29 @@ def check_tesseract_availability() -> bool:
 
 
 import concurrent.futures
+
+
+def _ocr_quality(text: str) -> tuple[int, int]:
+    if not text.strip():
+        return (0, 0)
+
+    parsed = parse_opening_label(normalize_ocr_text(text))
+    if parsed is None:
+        return (1, len(text.strip()))
+
+    parsed_fields = sum(
+        parsed.get(field) is not None
+        for field in (
+            "label_type",
+            "width_mm",
+            "height_mm",
+            "diameter_mm",
+            "ra_value",
+            "ok_value",
+            "reference",
+        )
+    )
+    return (2 + parsed_fields, len(text.strip()))
 
 def _process_single_crop(
     item: dict, 
@@ -151,6 +175,22 @@ def _process_single_crop(
                         used_lang = None
                         warning = f"OCR completely failed: {str(e3)}"
                         ocr_text = ""
+
+            if clean_red:
+                try:
+                    original_text = pytesseract.image_to_string(
+                        img_rgb.convert("L"),
+                        lang="deu+eng",
+                        config=config_str,
+                        timeout=5,
+                    )
+                    if _ocr_quality(original_text) > _ocr_quality(ocr_text):
+                        ocr_text = original_text
+                        used_lang = "deu+eng"
+                except Exception as original_ocr_error:
+                    logger.warning(
+                        f"OCR on original crop failed for {region_id}: {original_ocr_error}"
+                    )
             
             # Format OCR text: strip leading/trailing whitespace
             ocr_text_clean = ocr_text.strip() if ocr_text else ""
@@ -214,4 +254,3 @@ def run_ocr_on_crops(
     results.sort(key=lambda r: order_map.get(r.get("region_id"), 999))
     
     return results
-
