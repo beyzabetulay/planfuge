@@ -2,6 +2,7 @@ import logging
 import json
 from pathlib import Path
 from typing import Any
+from PIL import Image, ImageDraw
 from src.candidates.opening_label_parser import parse_opening_label, normalize_ocr_text
 from src.candidates.pdf_words_candidate_extractor import extract_candidates_from_words
 from src.candidates.validation import compute_iou, is_center_inside
@@ -14,6 +15,7 @@ from src.config.spatial_mapping import assign_candidate_spatial_fields
 logger = logging.getLogger(__name__)
 
 VALID_STATUSES = {"needs_review", "verified", "rejected", "duplicate_candidate"}
+UNREAD_DIMENSIONS_COMMENT = "Opening candidate detected; dimensions could not be read automatically."
 
 
 def validate_candidate(candidate: dict[str, Any]) -> None:
@@ -88,7 +90,7 @@ def extract_candidates_from_png_data(
                     "available": item.get("ocr_available", False)
                 }
                 
-    for idx, crop in enumerate(crops_metadata):
+    for crop in crops_metadata:
         region_id = crop.get("region_id")
         bbox_image = crop.get("bbox_image")
         crop_path = crop.get("crop_path")
@@ -100,69 +102,58 @@ def extract_candidates_from_png_data(
             # OCR missing or not run for this region
             raw_text = ""
             source = "png_red_annotation_region"
-            confidence = 0.3
         else:
             raw_text = ocr_info["text"] if ocr_info["text"] else ""
             raw_text_stripped = raw_text.strip()
             
             if not ocr_info["available"]:
                 source = "png_red_annotation_region"
-                confidence = 0.3
                 raw_text = ""
             else:
                 source = "png_red_annotation_ocr"
                 if not raw_text_stripped:
-                    confidence = 0.3
                     raw_text = ""
                 else:
-                    confidence = 0.5  # default if not parseable
                     raw_text = raw_text_stripped
                     
-        # Defaults for parser fields
-        label_type = None
-        width_mm = None
-        height_mm = None
-        diameter_mm = None
-        ra_value = None
-        ok_value = None
-        reference = None
-        
-        # Try to parse if we have OCR text
-        normalized_text = None
-        if raw_text:
-            normalized_text = normalize_ocr_text(raw_text)
-            parsed = parse_opening_label(normalized_text)
-            if parsed:
-                label_type = parsed.get("label_type")
-                width_mm = parsed.get("width_mm")
-                height_mm = parsed.get("height_mm")
-                diameter_mm = parsed.get("diameter_mm")
-                ra_value = parsed.get("ra_value")
-                ok_value = parsed.get("ok_value")
-                reference = parsed.get("reference")
-                
-        # Compute confidence score dynamically
-        if not label_type:
-            if not raw_text.strip():
-                confidence = 0.20
-            else:
-                confidence = 0.30
+        if not raw_text:
+            continue
+
+        normalized_text = normalize_ocr_text(raw_text)
+        parsed = parse_opening_label(normalized_text)
+        if not parsed:
+            continue
+
+        label_type = parsed.get("label_type")
+        width_mm = parsed.get("width_mm")
+        height_mm = parsed.get("height_mm")
+        diameter_mm = parsed.get("diameter_mm")
+        ra_value = parsed.get("ra_value")
+        ok_value = parsed.get("ok_value")
+        reference = parsed.get("reference")
+
+        has_dim = (width_mm is not None) or (height_mm is not None) or (diameter_mm is not None)
+        has_vertical = (ra_value is not None) or (ok_value is not None)
+        has_ref = reference is not None
+
+        if not (label_type or has_dim or has_vertical or has_ref):
+            continue
+
+        review_comment = None if has_dim else UNREAD_DIMENSIONS_COMMENT
+
+        if label_type and has_dim and has_vertical and has_ref:
+            confidence = 0.90
+        elif label_type and has_vertical and has_ref:
+            confidence = 0.85
+        elif has_dim:
+            confidence = 0.75
+        elif label_type:
+            confidence = 0.45
         else:
-            has_dim = (width_mm is not None) or (height_mm is not None) or (diameter_mm is not None)
-            has_vertical = (ra_value is not None) or (ok_value is not None)
-            has_ref = reference is not None
-            
-            if has_dim and has_vertical and has_ref:
-                confidence = 0.90
-            elif has_vertical and has_ref:
-                confidence = 0.85
-            elif has_dim:
-                confidence = 0.75
-            else:
-                confidence = 0.60
+            confidence = 0.60
                 
         candidate = {
-            "candidate_id": f"OP-{idx+1:03d}",
+            "candidate_id": f"OP-{len(candidates)+1:03d}",
             "source": source,
             "label_type": label_type,
             "raw_text": raw_text,
@@ -176,7 +167,8 @@ def extract_candidates_from_png_data(
             "ok_value": ok_value,
             "reference": reference,
             "confidence": confidence,
-            "status": default_status
+            "status": default_status,
+            "review_comment": review_comment,
         }
         
         validate_candidate(candidate)
@@ -241,6 +233,13 @@ def run_png_extraction_pipeline(
             word_candidates,
             PlanConfig.load_for_plan(config_root, plan_id),
         )
+        _write_candidate_preview_crops(
+            image_path=image_path,
+            candidates=word_candidates,
+            output_dir=crops_dir,
+            plan_id=plan_id,
+            padding_px=padding_px,
+        )
         payload = {
             "plan_id": plan_id,
             "candidate_count": len(word_candidates),
@@ -275,6 +274,13 @@ def run_png_extraction_pipeline(
     )
     candidates = _merge_candidate_sources(word_candidates, candidates)
     assign_candidate_spatial_fields(candidates, PlanConfig.load_for_plan(config_root, plan_id))
+    _write_candidate_preview_crops(
+        image_path=image_path,
+        candidates=candidates,
+        output_dir=crops_dir,
+        plan_id=plan_id,
+        padding_px=padding_px,
+    )
     
     # 6. Validate candidates
     for c in candidates:
@@ -330,6 +336,115 @@ def _merge_candidate_sources(
     for index, candidate in enumerate(merged, start=1):
         candidate["candidate_id"] = f"OP-{index:03d}"
     return merged
+
+
+def _write_candidate_preview_crops(
+    image_path: str | Path,
+    candidates: list[dict[str, Any]],
+    output_dir: str | Path,
+    plan_id: str,
+    padding_px: int,
+) -> None:
+    if not candidates:
+        return
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    with Image.open(image_path) as opened_image:
+        plan_image = opened_image.convert("RGB")
+
+    for candidate in candidates:
+        bbox_image = candidate.get("bbox_image")
+        candidate_id = candidate.get("candidate_id")
+        if not candidate_id or not _is_valid_bbox(bbox_image):
+            continue
+
+        if candidate.get("source") == "pdf_words" and not _bbox_contains_visible_ink(plan_image, bbox_image):
+            candidate["crop_path"] = None
+            continue
+
+        candidate_padding_px = _candidate_padding_px(candidate, padding_px)
+        crop_bbox = _padded_bbox(
+            bbox_image,
+            image_width=plan_image.width,
+            image_height=plan_image.height,
+            padding_px=candidate_padding_px,
+        )
+        if crop_bbox is None:
+            continue
+
+        crop = plan_image.crop(tuple(crop_bbox))
+        draw = ImageDraw.Draw(crop)
+        x, y, width, height = [int(round(value)) for value in bbox_image]
+        crop_x0, crop_y0, _, _ = crop_bbox
+        rectangle = [
+            x - crop_x0,
+            y - crop_y0,
+            x + width - crop_x0,
+            y + height - crop_y0,
+        ]
+        draw.rectangle(rectangle, outline=(255, 0, 0), width=5)
+
+        preview_path = output_dir / f"{plan_id}_{candidate_id}_preview.png"
+        crop.save(preview_path)
+        candidate["crop_path"] = str(preview_path)
+
+
+def _bbox_contains_visible_ink(
+    image: Image.Image,
+    bbox_image: list[int | float] | tuple[int | float, ...],
+) -> bool:
+    crop_bbox = _padded_bbox(
+        bbox_image,
+        image_width=image.width,
+        image_height=image.height,
+        padding_px=0,
+    )
+    if crop_bbox is None:
+        return False
+
+    crop = image.crop(tuple(crop_bbox)).convert("L")
+    pixels = list(crop.getdata())
+    if not pixels:
+        return False
+
+    dark_pixels = sum(1 for pixel in pixels if pixel < 180)
+    return dark_pixels / len(pixels) >= 0.005
+
+
+def _candidate_padding_px(candidate: dict[str, Any], default_padding_px: int) -> int:
+    if candidate.get("source") == "pdf_words":
+        return max(default_padding_px, 600)
+
+    return default_padding_px
+
+
+def _is_valid_bbox(bbox_image: Any) -> bool:
+    return (
+        isinstance(bbox_image, (list, tuple))
+        and len(bbox_image) == 4
+        and all(isinstance(value, (int, float)) for value in bbox_image)
+        and bbox_image[2] > 0
+        and bbox_image[3] > 0
+    )
+
+
+def _padded_bbox(
+    bbox_image: list[int | float] | tuple[int | float, ...],
+    image_width: int,
+    image_height: int,
+    padding_px: int,
+) -> list[int] | None:
+    if image_width <= 0 or image_height <= 0:
+        return None
+
+    x, y, width, height = [int(round(value)) for value in bbox_image]
+    x0 = max(0, min(image_width - 1, x - padding_px))
+    y0 = max(0, min(image_height - 1, y - padding_px))
+    x1 = min(image_width, max(x0 + 1, x + width + padding_px))
+    y1 = min(image_height, max(y0 + 1, y + height + padding_px))
+    return [x0, y0, x1, y1]
 
 
 def _candidate_boxes_overlap(first: dict[str, Any], second: dict[str, Any]) -> bool:

@@ -3,6 +3,8 @@ import json
 import unittest
 from pathlib import Path
 
+from PIL import Image
+
 from server.app.services.candidate_loader import load_candidates
 
 
@@ -110,6 +112,48 @@ class CandidateLoaderTests(unittest.TestCase):
         self.assertIsNone(result.candidates[0]["raw_text"])
         self.assertIsNone(result.candidates[0]["label_type"])
         self.assertTrue(any("missing optional field" in w for w in result.warnings))
+
+    def test_load_candidates_creates_boxed_crop_preview_for_existing_payload(self) -> None:
+        payload = {
+            "plan_id": "SP_U1_0003",
+            "candidates": [
+                {
+                    "candidate_id": "OP-064",
+                    "source": "pdf_words",
+                    "bbox_image": [20, 30, 40, 20],
+                    "status": "needs_review",
+                    "crop_path": None,
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            candidates_dir = root / "outputs" / "candidates"
+            pages_dir = root / "data" / "pages"
+            candidates_dir.mkdir(parents=True)
+            pages_dir.mkdir(parents=True)
+            candidate_file = candidates_dir / "SP_U1_0003_candidates.json"
+            candidate_file.write_text(json.dumps(payload))
+            page = Image.new("RGB", (120, 100), "white")
+            for x in range(20, 60):
+                page.putpixel((x, 30), (0, 0, 0))
+            page.save(pages_dir / "SP_U1_0003.png")
+
+            result = load_candidates(root, "SP_U1_0003")
+
+            crop_path = Path(result.candidates[0]["crop_path"])
+            self.assertTrue(crop_path.exists())
+            with Image.open(crop_path) as crop:
+                red_pixels = [
+                    pixel
+                    for pixel in crop.convert("RGB").getdata()
+                    if pixel[0] > 200 and pixel[1] < 80 and pixel[2] < 80
+                ]
+            self.assertGreater(len(red_pixels), 0)
+
+            saved = json.loads(candidate_file.read_text())
+            self.assertEqual(saved["candidates"][0]["crop_path"], str(crop_path))
 
 
 if __name__ == "__main__":

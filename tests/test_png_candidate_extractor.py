@@ -26,6 +26,12 @@ class TestPngCandidateExtractor(unittest.TestCase):
                 "crop_path": "outputs/crops/SP_U1_0003_RED-002.png",
                 "bbox_image": [100, 200, 50, 60],
                 "crop_bbox_image": [90, 190, 70, 80]
+            },
+            {
+                "region_id": "RED-003",
+                "crop_path": "outputs/crops/SP_U1_0003_RED-003.png",
+                "bbox_image": [150, 250, 50, 60],
+                "crop_bbox_image": [140, 240, 70, 80]
             }
         ]
 
@@ -41,16 +47,21 @@ class TestPngCandidateExtractor(unittest.TestCase):
                 "crop_path": "outputs/crops/SP_U1_0003_RED-002.png",
                 "ocr_text": "Random Noise Text",
                 "ocr_available": True
+            },
+            {
+                "region_id": "RED-003",
+                "crop_path": "outputs/crops/SP_U1_0003_RED-003.png",
+                "ocr_text": "WD UKD",
+                "ocr_available": True
             }
         ]
 
     def test_extract_candidates_with_ocr(self):
-        # RED-001 is parseable, RED-002 is unparseable
+        # RED-001 is parseable, RED-002 is noise, RED-003 is a reviewable opening with unread dimensions.
         candidates = extract_candidates_from_png_data(self.crops_metadata, self.ocr_results)
 
         self.assertEqual(len(candidates), 2)
 
-        # RED-001 (parseable)
         c1 = candidates[0]
         self.assertEqual(c1["candidate_id"], "OP-001")
         self.assertEqual(c1["source"], "png_red_annotation_ocr")
@@ -67,36 +78,55 @@ class TestPngCandidateExtractor(unittest.TestCase):
         self.assertEqual(c1["confidence"], 0.90)  # label_type + dim + vertical + ref
         self.assertEqual(c1["status"], "needs_review")
 
-        # RED-002 (unparseable)
         c2 = candidates[1]
         self.assertEqual(c2["candidate_id"], "OP-002")
-        self.assertEqual(c2["source"], "png_red_annotation_ocr")
-        self.assertIsNone(c2["label_type"])
-        self.assertEqual(c2["raw_text"], "Random Noise Text")
-        self.assertEqual(c2["normalized_text"], "RANDOM NOISE TEXT")
-        self.assertEqual(c2["bbox_image"], [100, 200, 50, 60])
+        self.assertEqual(c2["label_type"], "WDB")
+        self.assertEqual(c2["raw_text"], "WD UKD")
         self.assertIsNone(c2["width_mm"])
         self.assertIsNone(c2["height_mm"])
-        self.assertIsNone(c2["diameter_mm"])
-        self.assertIsNone(c2["ra_value"])
-        self.assertIsNone(c2["ok_value"])
-        self.assertIsNone(c2["reference"])
-        self.assertEqual(c2["confidence"], 0.30)  # label_type None, raw_text present
-        self.assertEqual(c2["status"], "needs_review")
+        self.assertEqual(c2["review_comment"], "Opening candidate detected; dimensions could not be read automatically.")
+        self.assertEqual(c2["confidence"], 0.45)
+
+    def test_extract_candidates_supports_all_opening_label_types(self):
+        crops = [
+            {
+                "region_id": "RED-001",
+                "crop_path": "outputs/crops/RED-001.png",
+                "bbox_image": [10, 20, 30, 40],
+                "crop_bbox_image": [0, 10, 40, 50],
+            },
+            {
+                "region_id": "RED-002",
+                "crop_path": "outputs/crops/RED-002.png",
+                "bbox_image": [50, 20, 30, 40],
+                "crop_bbox_image": [40, 10, 40, 50],
+            },
+            {
+                "region_id": "RED-003",
+                "crop_path": "outputs/crops/RED-003.png",
+                "bbox_image": [90, 20, 30, 40],
+                "crop_bbox_image": [80, 10, 40, 50],
+            },
+        ]
+        ocr_results = [
+            {"region_id": "RED-001", "ocr_text": "UZDB 30/20 UKRD", "ocr_available": True},
+            {"region_id": "RED-002", "ocr_text": "DDP Ø150 RA -45 UKRD", "ocr_available": True},
+            {"region_id": "RED-003", "ocr_text": "HSI150 OK 0 UKRD", "ocr_available": True},
+        ]
+
+        candidates = extract_candidates_from_png_data(crops, ocr_results)
+
+        self.assertEqual([c["label_type"] for c in candidates], ["UZDB", "DDP", "HSI"])
+        self.assertEqual(candidates[0]["width_mm"], 300)
+        self.assertEqual(candidates[0]["height_mm"], 200)
+        self.assertEqual(candidates[1]["diameter_mm"], 150)
+        self.assertEqual(candidates[2]["diameter_mm"], 150)
 
     def test_extract_candidates_missing_ocr_results(self):
         # If ocr_results is None
         candidates = extract_candidates_from_png_data(self.crops_metadata, ocr_results=None)
 
-        self.assertEqual(len(candidates), 2)
-        for i, c in enumerate(candidates):
-            self.assertEqual(c["candidate_id"], f"OP-{i+1:03d}")
-            self.assertEqual(c["source"], "png_red_annotation_region")
-            self.assertIsNone(c["label_type"])
-            self.assertEqual(c["raw_text"], "")
-            self.assertIsNone(c["normalized_text"])
-            self.assertEqual(c["confidence"], 0.20)  # label_type None, raw_text empty
-            self.assertEqual(c["status"], "needs_review")
+        self.assertEqual(candidates, [])
 
     def test_extract_candidates_empty_ocr_text(self):
         ocr_results_empty = [
@@ -108,12 +138,7 @@ class TestPngCandidateExtractor(unittest.TestCase):
             }
         ]
         candidates = extract_candidates_from_png_data(self.crops_metadata[:1], ocr_results_empty)
-        self.assertEqual(len(candidates), 1)
-        c = candidates[0]
-        self.assertEqual(c["raw_text"], "")
-        self.assertIsNone(c["normalized_text"])
-        self.assertEqual(c["confidence"], 0.20)  # label_type None, raw_text empty
-        self.assertEqual(c["source"], "png_red_annotation_ocr")
+        self.assertEqual(candidates, [])
 
     def test_validate_candidate_valid(self):
         valid_candidate = {
@@ -212,7 +237,7 @@ class TestPngCandidateExtractor(unittest.TestCase):
             self.assertEqual(payload["candidates"], [])
 
     @patch("src.candidates.png_candidate_extractor.detect_red_regions")
-    def test_run_png_extraction_pipeline_uses_pdf_words_when_ocr_has_no_regions(self, mock_detect):
+    def test_run_png_extraction_pipeline_uses_pdf_words_with_crop_preview_when_ocr_has_no_regions(self, mock_detect):
         mock_detect.return_value = ([], Image.new("L", (100, 100), 0))
 
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -222,7 +247,7 @@ class TestPngCandidateExtractor(unittest.TestCase):
             words_dir.mkdir(parents=True)
             words_path = words_dir / "SP_U1_0003_words.json"
             output_root = root / "outputs"
-            Image.new("RGB", (100, 100), "white").save(image_path)
+            Image.new("RGB", (500, 200), "white").save(image_path)
             words_path.write_text(json.dumps([
                 {
                     "text": "DDB130/140",
@@ -245,11 +270,23 @@ class TestPngCandidateExtractor(unittest.TestCase):
             self.assertEqual(candidates[0]["source"], "pdf_words")
             self.assertEqual(candidates[0]["width_mm"], 1300)
             self.assertEqual(candidates[0]["height_mm"], 1400)
+            self.assertIsNotNone(candidates[0]["crop_path"])
+
+            crop_path = Path(candidates[0]["crop_path"])
+            self.assertTrue(crop_path.exists())
+            with Image.open(crop_path) as crop:
+                red_pixels = [
+                    pixel
+                    for pixel in crop.convert("RGB").getdata()
+                    if pixel[0] > 200 and pixel[1] < 80 and pixel[2] < 80
+                ]
+            self.assertGreater(len(red_pixels), 0)
 
             saved = json.loads(
                 (output_root / "candidates" / "SP_U1_0003_candidates.json").read_text()
             )
             self.assertEqual(saved["candidate_count"], 1)
+            self.assertEqual(saved["candidates"][0]["crop_path"], str(crop_path))
 
     @patch("src.candidates.png_candidate_extractor.detect_red_regions")
     @patch("src.candidates.png_candidate_extractor.crop_red_regions")
@@ -280,11 +317,7 @@ class TestPngCandidateExtractor(unittest.TestCase):
             # Verify clean_red and output_root were passed to run_ocr_on_crops
             mock_ocr.assert_called_once_with(crop_metadata, psm=6, clean_red=True, output_root=out_path.resolve())
             
-            self.assertEqual(len(candidates), 1)
-            c = candidates[0]
-            self.assertEqual(c["candidate_id"], "OP-001")
-            self.assertEqual(c["source"], "png_red_annotation_region")
-            self.assertEqual(c["confidence"], 0.20)
+            self.assertEqual(candidates, [])
 
             # Check directories
             self.assertTrue((out_path / "crops").exists())
@@ -298,8 +331,8 @@ class TestPngCandidateExtractor(unittest.TestCase):
                 payload = json.load(f)
             self.assertIsInstance(payload, dict)
             self.assertEqual(payload["plan_id"], "mock_plan")
-            self.assertEqual(payload["candidate_count"], 1)
-            self.assertIsInstance(payload["candidates"], list)
+            self.assertEqual(payload["candidate_count"], 0)
+            self.assertEqual(payload["candidates"], [])
 
     @patch("src.candidates.png_candidate_extractor.detect_red_regions")
     @patch("src.candidates.png_candidate_extractor.crop_red_regions")
