@@ -14,8 +14,6 @@ from src.candidates.opening_label_parser import parse_opening_label
 from src.config.plan_config import PlanConfig
 from src.config.spatial_mapping import assign_candidate_spatial_fields
 
-ANCHOR_PREFIXES = ("WDB", "DDB", "UZDB", "DDP")
-
 PDF_TO_IMAGE_SCALE = 300 / 72  # 300 DPI PNG from 72 DPI PDF points
 
 
@@ -88,7 +86,8 @@ def _normalize_word(word: dict[str, Any]) -> dict[str, Any]:
 
 def _is_anchor(text: str) -> bool:
     upper_text = text.upper().replace("Р", "P")
-    return upper_text.startswith(ANCHOR_PREFIXES) or "HSI" in upper_text
+    parsed = parse_opening_label(upper_text)
+    return parsed is not None and parsed.get("label_type") is not None
 
 
 def _nearby_block_indices(

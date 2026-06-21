@@ -81,9 +81,9 @@ def _parse_floor(plan_id: str) -> str:
 
 
 def _opening_type(label_type: str | None) -> str:
-    if label_type == "DDB":
+    if label_type in {"DDB", "DDP", "HSI"}:
         return "Ceiling"
-    if label_type == "WDB":
+    if label_type in {"WDB", "UZDB"}:
         return "Wall"
     return "Unknown"
 

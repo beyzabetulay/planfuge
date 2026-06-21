@@ -28,6 +28,21 @@ class OpeningLabelParserTest(unittest.TestCase):
         self.assertEqual(parsed["height_mm"], 1400)
         self.assertIsNone(parsed["diameter_mm"])
 
+    def test_parse_short_wd_and_dd_aliases(self):
+        wd = parse_opening_label("WD 40/20 UKD")
+        dd = parse_opening_label("DD 80/15 (H)")
+        wd_ocr_zero = parse_opening_label("WD 20/2C UKD")
+
+        self.assertEqual(wd["label_type"], "WDB")
+        self.assertEqual(wd["width_mm"], 400)
+        self.assertEqual(wd["height_mm"], 200)
+        self.assertEqual(dd["label_type"], "DDB")
+        self.assertEqual(dd["width_mm"], 800)
+        self.assertEqual(dd["height_mm"], 150)
+        self.assertEqual(wd_ocr_zero["label_type"], "WDB")
+        self.assertEqual(wd_ocr_zero["width_mm"], 200)
+        self.assertEqual(wd_ocr_zero["height_mm"], 200)
+
     def test_parse_diameter_symbol(self):
         parsed = parse_opening_label("DDP Ø150 RA -45 UKRD")
 

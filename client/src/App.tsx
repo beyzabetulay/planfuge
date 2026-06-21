@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { LayoutDashboard, FileCheck, Save, Download, FileJson, AlertCircle, Maximize2, Loader2, CheckCircle2, Image as ImageIcon, Layers } from 'lucide-react'
+import { useState, useEffect, useCallback, type FormEvent } from 'react'
+import { LayoutDashboard, FileCheck, Save, Download, FileJson, AlertCircle, Maximize2, Loader2, CheckCircle2, Image as ImageIcon, Layers, Upload } from 'lucide-react'
 import { parseMetadataResponse, type MetadataResult } from './metadata'
 import { canSaveCandidates, candidateSourceFromApi, candidateSourceLabel, type CandidateSource } from './sampleMode'
 
@@ -37,10 +37,28 @@ function candidateSourceBadgeClass(source: CandidateSource): string {
   return 'bg-slate-100 text-slate-700'
 }
 
+function hasCandidateDimensions(candidate: Candidate): boolean {
+  return Boolean(
+    (candidate.width_mm && candidate.height_mm) ||
+    candidate.diameter_mm
+  )
+}
+
+function formatCandidateDimensions(candidate: Candidate): string {
+  if (candidate.width_mm && candidate.height_mm) return `${candidate.width_mm}x${candidate.height_mm}`
+  if (candidate.diameter_mm) return `Ø${candidate.diameter_mm}`
+  return candidate.label_type ? 'Measurement needs review' : '-'
+}
+
 function App() {
   const [activePlan, setActivePlan] = useState<string | null>(null)
   const [plans, setPlans] = useState<string[]>([])
   const [loadingPlans, setLoadingPlans] = useState(true)
+  const [selectedImportFile, setSelectedImportFile] = useState<File | null>(null)
+  const [importInputKey, setImportInputKey] = useState(0)
+  const [isImportingPlan, setIsImportingPlan] = useState(false)
+  const [importError, setImportError] = useState<string | null>(null)
+  const [importMessage, setImportMessage] = useState<string | null>(null)
   
   // Plan-specific states
   const [metadataResult, setMetadataResult] = useState<MetadataResult | null>(null)
@@ -59,7 +77,7 @@ function App() {
   const [cropError, setCropError] = useState(false)
   const [isExporting, setIsExporting] = useState<{csv: boolean, json: boolean}>({csv: false, json: false})
 
-  const handlePlanSelection = (planId: string) => {
+  const handlePlanSelection = useCallback((planId: string) => {
     setImageError(false)
     setMetadataResult(null)
     setCandidates([])
@@ -71,23 +89,64 @@ function App() {
     setSelectedCandidateId(null)
     setCropError(false)
     setActivePlan(planId)
+  }, [])
+
+  const refreshPlans = useCallback(async (selectedPlanId?: string) => {
+    const response = await fetch('/api/plans')
+    if (!response.ok) throw new Error(`Plans request failed (${response.status})`)
+    const data = await response.json()
+    const nextPlans = Array.isArray(data.plans) ? data.plans : []
+
+    setPlans(nextPlans)
+    if (selectedPlanId && nextPlans.includes(selectedPlanId)) {
+      handlePlanSelection(selectedPlanId)
+    } else if (nextPlans.length > 0) {
+      setActivePlan(currentPlan => currentPlan ?? nextPlans[0])
+    }
+  }, [handlePlanSelection])
+
+  const handleImportPlan = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!selectedImportFile) return
+
+    setIsImportingPlan(true)
+    setImportError(null)
+    setImportMessage(null)
+
+    const formData = new FormData()
+    formData.append('file', selectedImportFile)
+
+    try {
+      const response = await fetch('/api/import/pdf', {
+        method: 'POST',
+        body: formData,
+      })
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.detail || `Import failed (${response.status})`)
+      }
+      if (!data.success) {
+        throw new Error(data.stderr || 'Pipeline failed for this plan.')
+      }
+
+      setSelectedImportFile(null)
+      setImportInputKey(key => key + 1)
+      setImportMessage(`${data.plan_id} analyzed`)
+      await refreshPlans(data.plan_id)
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : 'Import failed')
+    } finally {
+      setIsImportingPlan(false)
+    }
   }
 
   // Fetch available plans on mount
   useEffect(() => {
-    fetch('/api/plans')
-      .then(res => res.json())
-      .then(data => {
-        if (data.plans && Array.isArray(data.plans)) {
-          setPlans(data.plans)
-          if (data.plans.length > 0) {
-            setActivePlan(data.plans[0])
-          }
-        }
-      })
+    refreshPlans()
       .catch(err => console.error("Failed to load plans:", err))
       .finally(() => setLoadingPlans(false))
-  }, [])
+  }, [refreshPlans])
 
   // Fetch metadata, candidates and status when activePlan changes
   useEffect(() => {
@@ -283,30 +342,75 @@ function App() {
               <div className="h-10 bg-border rounded-md w-full"></div>
               <div className="h-10 bg-border rounded-md w-full"></div>
             </div>
-          ) : plans.length === 0 ? (
-            <div className="p-3 bg-white/10 border border-white/20 rounded-md flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-white shrink-0 mt-0.5" />
-              <p className="text-sm text-white/90">
-                No plan files found. Please add PNG files to <strong>data/pages/</strong>.
-              </p>
-            </div>
           ) : (
-            <nav className="space-y-1">
-              {plans.map((plan_id) => (
+            <div className="space-y-4">
+              <select
+                value={activePlan ?? ''}
+                onChange={(event) => handlePlanSelection(event.target.value)}
+                disabled={plans.length === 0}
+                className="w-full h-10 rounded-md border border-white/20 bg-white text-[#FE0000] px-3 text-sm font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-white/70 disabled:opacity-60"
+              >
+                {plans.length === 0 ? (
+                  <option value="">No plans</option>
+                ) : (
+                  plans.map((plan_id) => (
+                    <option key={plan_id} value={plan_id}>{plan_id}</option>
+                  ))
+                )}
+              </select>
+
+              <form onSubmit={handleImportPlan} className="rounded-md border border-white/20 bg-white/10 p-3 space-y-3">
+                <label className="block">
+                  <span className="text-xs font-bold uppercase tracking-wider text-white/70">Add PDF</span>
+                  <input
+                    key={importInputKey}
+                    type="file"
+                    accept="application/pdf"
+                    onChange={(event) => {
+                      setSelectedImportFile(event.target.files?.[0] ?? null)
+                      setImportError(null)
+                      setImportMessage(null)
+                    }}
+                    className="mt-2 block w-full text-xs text-white file:mr-3 file:rounded-md file:border-0 file:bg-white file:px-3 file:py-2 file:text-xs file:font-semibold file:text-[#FE0000] hover:file:bg-white/90"
+                  />
+                </label>
+
                 <button
-                  key={plan_id}
-                  onClick={() => handlePlanSelection(plan_id)}
-                  className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-md font-medium transition-all duration-200 ${
-                    activePlan === plan_id 
-                      ? "bg-white text-[#FE0000] shadow-sm translate-x-1" 
-                      : "text-white/80 hover:bg-white/10 hover:text-white"
-                  }`}
+                  type="submit"
+                  disabled={!selectedImportFile || isImportingPlan}
+                  className="w-full flex items-center justify-center gap-2 rounded-md bg-white px-3 py-2 text-sm font-bold text-[#FE0000] shadow-sm transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <LayoutDashboard className={`w-4 h-4 ${activePlan === plan_id ? "text-[#FE0000]" : "text-white/60"}`} />
-                  <span className="truncate">{plan_id}</span>
+                  {isImportingPlan ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                  <span>{isImportingPlan ? 'Analyzing...' : 'Analyze Plan'}</span>
                 </button>
-              ))}
-            </nav>
+
+                {importError && (
+                  <p className="rounded-md bg-red-950/30 px-2 py-1.5 text-xs text-white">{importError}</p>
+                )}
+                {importMessage && (
+                  <p className="rounded-md bg-white/15 px-2 py-1.5 text-xs font-medium text-white">{importMessage}</p>
+                )}
+              </form>
+
+              {plans.length > 0 && (
+                <nav className="space-y-1">
+                  {plans.map((plan_id) => (
+                    <button
+                      key={plan_id}
+                      onClick={() => handlePlanSelection(plan_id)}
+                      className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-md font-medium transition-all duration-200 ${
+                        activePlan === plan_id 
+                          ? "bg-white text-[#FE0000] shadow-sm translate-x-1" 
+                          : "text-white/80 hover:bg-white/10 hover:text-white"
+                      }`}
+                    >
+                      <LayoutDashboard className={`w-4 h-4 ${activePlan === plan_id ? "text-[#FE0000]" : "text-white/60"}`} />
+                      <span className="truncate">{plan_id}</span>
+                    </button>
+                  ))}
+                </nav>
+              )}
+            </div>
           )}
         </div>
         
@@ -489,7 +593,9 @@ function App() {
                                 <td className="px-2 py-2 min-w-[80px]"><TextInput candidate={c} field="ra_value" /></td>
                                 <td className="px-2 py-2 min-w-[80px]"><TextInput candidate={c} field="ok_value" /></td>
                                 <td className="px-2 py-2 min-w-[120px]"><TextInput candidate={c} field="reference" /></td>
-                                <td className="px-2 py-2 min-w-[150px]"><TextInput candidate={c} field="review_comment" /></td>
+                                <td className={`px-2 py-2 min-w-[150px] ${c.label_type && !hasCandidateDimensions(c) ? 'bg-yellow-50 dark:bg-yellow-900/10' : ''}`}>
+                                  <TextInput candidate={c} field="review_comment" />
+                                </td>
                               </tr>
                             ))}
                           </tbody>
@@ -558,11 +664,7 @@ function App() {
                           <div>
                             <span className="block text-muted-foreground mb-0.5">Dimensions (mm)</span>
                             <span className="font-medium">
-                              {selectedCandidate.width_mm && selectedCandidate.height_mm 
-                                ? `${selectedCandidate.width_mm}x${selectedCandidate.height_mm}`
-                                : selectedCandidate.diameter_mm 
-                                ? `Ø${selectedCandidate.diameter_mm}`
-                                : '-'}
+                              {formatCandidateDimensions(selectedCandidate)}
                             </span>
                           </div>
                           <div>

@@ -60,6 +60,20 @@ class PdfWordsCandidateExtractorTest(unittest.TestCase):
         self.assertEqual(candidates[0]["ra_value"], -50)
         self.assertEqual(candidates[0]["reference"], "UKRD")
 
+    def test_extracts_short_wd_alias_from_nearby_words(self):
+        words = [
+            word("WD", 10, 10, 35, 20),
+            word("40/20", 40, 10, 75, 20),
+            word("UKD", 82, 10, 110, 20),
+        ]
+
+        candidates = extract_candidates_from_words(words)
+
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]["label_type"], "WDB")
+        self.assertEqual(candidates[0]["width_mm"], 400)
+        self.assertEqual(candidates[0]["height_mm"], 200)
+
     def test_returns_empty_candidates_for_no_anchors(self):
         self.assertEqual(
             extract_candidates_from_words([word("M", 1, 1, 2, 2)]),

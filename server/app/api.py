@@ -27,6 +27,7 @@ from server.app.services.contract_export import generate_contract_csv, generate_
 from server.app.services.csv_export import CSV_COLUMNS, serialize_csv, to_csv_row
 from server.app.services.metadata_loader import load_metadata
 from server.app.services.pipeline_status import check_pipeline_status
+from server.app.services.plan_importer import import_plan_pdf as import_plan_pdf_service
 from server.app.services.plan_discovery import discover_plans
 from server.app.services.review_saver import save_reviewed_candidates
 
@@ -208,36 +209,16 @@ def get_overlay_image(plan_id: str) -> Response:
 
 @app.post("/api/import/pdf")
 async def import_pdf(file: UploadFile) -> dict:
-    """Accept a PDF upload, run the extraction pipeline, return status."""
-    import subprocess
-    import sys
     from fastapi import HTTPException
 
-    if not file.filename or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are accepted.")
+    try:
+        result = import_plan_pdf_service(_get_project_root(), file.filename or "", await file.read())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    project_root = _get_project_root()
-    import_dir = project_root / "data" / "imports"
-    import_dir.mkdir(parents=True, exist_ok=True)
-
-    pdf_path = import_dir / file.filename
-    contents = await file.read()
-    pdf_path.write_bytes(contents)
-
-    plan_id = pdf_path.stem
-
-    script = project_root / "scripts" / "run_pipeline_on_pdfs.py"
-    result = subprocess.run(
-        [sys.executable, str(script), "--pdf", str(pdf_path)],
-        capture_output=True,
-        text=True,
-        cwd=str(project_root),
-    )
-
-    success = result.returncode == 0
     return {
-        "plan_id": plan_id,
-        "success": success,
+        "plan_id": result.plan_id,
+        "success": result.success,
         "stdout": result.stdout,
         "stderr": result.stderr,
     }

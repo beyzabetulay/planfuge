@@ -4,8 +4,10 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from subprocess import CompletedProcess
 
 from fastapi import HTTPException
+from PIL import Image
 
 from server.app.api import (
     app,
@@ -26,6 +28,7 @@ from server.app.api import (
     save_reviews,
 )
 from server.app.schemas import CalculateOpeningRequest, CsvExportRequest
+from server.app.services.plan_importer import import_plan_pdf
 
 
 class ApiTests(unittest.TestCase):
@@ -465,6 +468,31 @@ class ApiTests(unittest.TestCase):
             self.assertIn("plans", data)
             self.assertEqual(len(data["plans"]), 2)
             self.assertEqual(data["plans"][0], "SP_U1_0001")
+
+    def test_import_plan_pdf_runs_pipeline_and_publishes_plan_image(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            commands: list[list[str]] = []
+
+            def fake_run(command: list[str], **_: object) -> CompletedProcess[str]:
+                commands.append(command)
+                rendered_dir = root / "outputs" / "rendered"
+                rendered_dir.mkdir(parents=True)
+                Image.new("RGB", (12, 8), "white").save(rendered_dir / "NEW_PLAN.png")
+                return CompletedProcess(command, 0, stdout="pipeline ok", stderr="")
+
+            result = import_plan_pdf(root, "NEW_PLAN.pdf", b"%PDF", run_command=fake_run)
+
+            self.assertTrue((root / "data" / "imports" / "NEW_PLAN.pdf").is_file())
+            self.assertEqual(result.plan_id, "NEW_PLAN")
+            self.assertTrue(result.success)
+            self.assertEqual(result.stdout, "pipeline ok")
+            self.assertTrue((root / "data" / "pages" / "NEW_PLAN.png").is_file())
+            metadata = json.loads((root / "data" / "metadata" / "NEW_PLAN_metadata.json").read_text())
+            self.assertEqual(metadata["image_width_px"], 12)
+            self.assertEqual(metadata["image_height_px"], 8)
+            self.assertTrue(metadata["original_pdf_available"])
+            self.assertEqual(commands[0][-2:], ["--pdf", str(root / "data" / "imports" / "NEW_PLAN.pdf")])
 
     def test_get_plan_image_returns_file_or_404(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

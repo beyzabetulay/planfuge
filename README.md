@@ -150,6 +150,34 @@ sudo apt install tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng
 
 PlanFuge has two running parts: backend and frontend.
 
+### Docker
+
+Run both services with Docker Compose:
+
+```bash
+docker compose up --build
+```
+
+Default URLs:
+
+```text
+Frontend: http://localhost:5173
+Backend:  http://localhost:8000
+```
+
+To avoid host port conflicts, override the bindings when starting Compose:
+
+```bash
+FRONTEND_PORT=5174 BACKEND_PORT=8001 docker compose up --build
+```
+
+The frontend container serves the production Vite build through Nginx and proxies
+`/api` requests to the backend container. The backend mounts `./data` and
+`./outputs` so generated plan assets and exports stay on the host. On startup,
+the backend runs the extraction pipeline when PDFs exist in `data/imports` and
+candidate/page outputs are missing. Set `PLANFUGE_RUN_PIPELINE_ON_STARTUP=0` to
+skip this automatic pipeline step.
+
 ### 1. Start the Backend
 
 Open the first terminal in the repository root:

@@ -32,7 +32,12 @@ def candidate_to_opening(candidate: dict, plan_id: str, plan_config: PlanConfig)
         width_cm = (height_mm / 10.0) if height_mm is not None else 0.0
 
     label_type = candidate.get("label_type")
-    opening_type = "Ceiling" if label_type in ("WDB", "DDB", "DDP") else "Unknown"
+    if label_type in ("DDB", "DDP", "HSI"):
+        opening_type = "Ceiling"
+    elif label_type in ("WDB", "UZDB"):
+        opening_type = "Wall"
+    else:
+        opening_type = "Unknown"
     confidence = candidate.get("confidence", 0.5)
     status = candidate.get("status", "needs_review")
     bbox = candidate.get("bbox_image") or [0, 0, 0, 0]

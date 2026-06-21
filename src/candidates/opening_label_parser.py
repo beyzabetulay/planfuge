@@ -6,6 +6,10 @@ import re
 from typing import Any
 
 LABEL_TYPES = ("UZDB", "WDB", "DDB", "DDP")
+LABEL_ALIASES = {
+    "WD": "WDB",
+    "DD": "DDB",
+}
 REFERENCES = ("UKRD", "OKRB", "UKRB")
 
 
@@ -41,6 +45,9 @@ def parse_opening_label(text: str) -> dict[str, Any] | None:
 def normalize_ocr_text(text: str) -> str:
     """Apply specific OCR normalization rules for opening labels."""
     normalized = text.upper()
+
+    # OCR often reads a trailing zero in a dimension token as O/C.
+    normalized = re.sub(r'(?<=\d)[OC]\b', '0', normalized)
     
     # 1. Normalize @ followed by digits to Ø: e.g. @15 -> Ø15, @25 -> Ø25
     normalized = re.sub(r'@\s*(\d{1,3})', r'Ø\1', normalized)
@@ -82,6 +89,10 @@ def _parse_label_type(text: str) -> str | None:
         if re.search(rf"\b{label_type}\b|{label_type}\d", text):
             return label_type
 
+    for alias, label_type in LABEL_ALIASES.items():
+        if re.search(rf"\b{alias}\b|{alias}\d", text):
+            return label_type
+
     if re.search(r"\bHSI\s*\d+", text):
         return "HSI"
 
@@ -100,7 +111,7 @@ def _parse_rectangular_dimensions(text: str, require_prefix: bool = False) -> tu
 
     # If no label prefix is present, only extract dimensions when text has a known label type
     if require_prefix:
-        has_label_nearby = any(p in text for p in ("WDB", "DDB", "UZDB", "DDP", "HSI"))
+        has_label_nearby = any(p in text for p in ("WDB", "DDB", "UZDB", "DDP", "HSI", "WD", "DD"))
         if not has_label_nearby:
             return None, None
 

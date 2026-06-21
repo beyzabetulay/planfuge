@@ -1,0 +1,13 @@
+.git
+.agents
+.codex
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+
+client/node_modules
+client/dist
+
+outputs
+data
